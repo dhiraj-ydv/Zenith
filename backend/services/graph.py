@@ -1,5 +1,5 @@
 """
-Graph Service — Builds the graph data structure based strictly on wikilinks.
+Graph Service — Builds the graph data structure for the entire vault.
 """
 
 from __future__ import annotations
@@ -11,14 +11,14 @@ from services.vault import VaultManager
 
 
 class GraphService:
-    """Builds a graph representing wikilink relationships between notes."""
+    """Builds a graph representing wikilink relationships between all notes."""
 
     def __init__(self, moc: MOCService, vault_manager: VaultManager) -> None:
         self.moc = moc
         self.vault = vault_manager
 
-    def build_graph(self) -> GraphData:
-        """Build the graph from note content links only."""
+    def build_graph(self, filter_id: str | None = None) -> GraphData:
+        """Build the graph from all notes in the vault."""
         if not self.vault.get_active_vault():
             return GraphData(nodes=[], edges=[])
             
@@ -29,7 +29,7 @@ class GraphService:
             for f in notes_dir.glob("*.md"):
                 note_ids.add(f.stem)
 
-        # Build nodes for all notes in the library
+        # Build nodes for all notes
         nodes: list[GraphNode] = []
         for nid in note_ids:
             nodes.append(GraphNode(
@@ -38,7 +38,7 @@ class GraphService:
                 labels=[],
             ))
 
-        # Build edges based ONLY on wikilinks
+        # Build edges based on wikilinks
         edge_set: set[tuple[str, str]] = set()
         edges: list[GraphEdge] = []
 
@@ -49,12 +49,7 @@ class GraphService:
                 content = path.read_text(encoding="utf-8")
                 for link_title in WIKILINK_PATTERN.findall(content):
                     target_id = _title_to_id(link_title)
-                    # We only draw an edge if the target note actually exists
                     if target_id in note_ids:
-                        # Prevent duplicate edges (bi-directional or repeat links)
-                        # We use sorted tuple to treat A->B and B->A as one relationship line
-                        # or keep them directed? User said "representative of wikilinks". 
-                        # Usually these are directed.
                         key = (nid, target_id)
                         if key not in edge_set:
                             edge_set.add(key)

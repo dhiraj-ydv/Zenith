@@ -21,9 +21,16 @@ async def list_labels():
 
 @router.post("", response_model=dict, status_code=201)
 async def create_label(body: LabelCreate):
-    """Create a new label."""
-    moc_service.add_to_hierarchy(f"label:{body.name}")
-    return {"id": f"label:{body.name}", "name": body.name}
+    """Create a new feed or label. Expects full prefixed ID in body.name."""
+    node_id = body.name
+    
+    # If no prefix provided, default to label:
+    if ":" not in node_id:
+        node_id = f"label:{node_id}"
+    
+    moc_service.add_to_hierarchy(node_id)
+    name = node_id.split(":", 1)[1]
+    return {"id": node_id, "name": name}
 
 
 @router.post("/{node_id}/move", status_code=200)

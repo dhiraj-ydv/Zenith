@@ -82,6 +82,14 @@ class VaultManager:
         return self.vault_root / "attachments"
 
     @property
+    def uploads_dir(self) -> Path:
+        return self.attachments_dir / "Uploads"
+
+    @property
+    def excalidraw_dir(self) -> Path:
+        return self.attachments_dir / "Excalidraw"
+
+    @property
     def moc_file(self) -> Path:
         return self.vault_root / "graph_moc.yaml"
 
@@ -96,25 +104,29 @@ class VaultManager:
 
         notes = root / "notes"
         attachments = root / "attachments"
+        uploads = attachments / "Uploads"
+        excalidraw = attachments / "Excalidraw"
         moc = root / "graph_moc.yaml"
 
         notes.mkdir(parents=True, exist_ok=True)
         attachments.mkdir(parents=True, exist_ok=True)
+        uploads.mkdir(parents=True, exist_ok=True)
+        excalidraw.mkdir(parents=True, exist_ok=True)
 
         if not moc.exists():
-            moc.write_text("version: 1.0\nlabels: []\nedges: []\n", encoding="utf-8")
+            moc.write_text("version: 1.1\nhierarchy: []\nedges: []\n", encoding="utf-8")
 
         print(f"[OK] Vault ready at {root}")
 
     def validate_flat_structure(self) -> list[str]:
-        """Validate that no subdirectories exist inside /notes or /attachments."""
+        """Validate that no subdirectories exist inside /notes. Subdirectories in /attachments are allowed."""
         violations: list[str] = []
         if not self.settings.active_vault:
             return violations
         
-        for directory in (self.notes_dir, self.attachments_dir):
-            if directory.exists():
-                for child in directory.iterdir():
-                    if child.is_dir():
-                        violations.append(str(child))
+        # Only check notes_dir for flat structure now
+        if self.notes_dir.exists():
+            for child in self.notes_dir.iterdir():
+                if child.is_dir():
+                    violations.append(str(child))
         return violations

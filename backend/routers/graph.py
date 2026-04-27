@@ -16,9 +16,9 @@ moc_service: MOCService = None  # type: ignore
 
 
 @router.get("/data", response_model=GraphData)
-async def get_graph_data():
-    """Get the full graph for visualization (nodes + edges)."""
-    return graph_service.build_graph()
+async def get_graph_data(id: str | None = None):
+    """Get the full graph for visualization (nodes + edges). Optional id filters for Canvas."""
+    return graph_service.build_graph(id)
 
 
 @router.get("/index", response_class=PlainTextResponse)

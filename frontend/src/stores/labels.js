@@ -1,5 +1,6 @@
 /**
- * Labels Store — Pinia store for virtual folder management.
+ * Labels Store — Manages hierarchy and multiple feed roots.
+ * Supports virtual node resolution for cleaner YAML.
  */
 import { defineStore } from 'pinia'
 import { labelsApi } from '../api/client'
@@ -7,66 +8,50 @@ import { useNotesStore } from './notes'
 
 export const useLabelsStore = defineStore('labels', {
   state: () => ({
-    hierarchy: [], // Array of {id, children}
-    activeFeedId: null, // The root node being viewed
-    activeLabel: null,
+    hierarchy: [],
+    activeFeedId: null, 
+    activeLabel: null, // Sub-label inside a feed root
     loading: false,
     error: null,
   }),
 
   getters: {
     /**
-     * Top-level roots for the "Feeds" list.
+     * Top-level Feed Roots.
      */
     rootFeeds: (state) => {
       const childIds = new Set()
-      state.hierarchy.forEach(h => {
-        h.children.forEach(cid => childIds.add(cid))
-      })
-      // Roots are nodes that are not children of any other node
-      return state.hierarchy.filter(h => !childIds.has(h.id))
+      state.hierarchy.forEach(h => h.children.forEach(cid => childIds.add(cid)))
+      return state.hierarchy.filter(h => (h.id.startsWith('label:') || h.id.startsWith('feed:')) && !childIds.has(h.id))
     },
 
     /**
-     * Focused tree starting from activeFeedId.
+     * Notes that have no parent in the hierarchy.
+     */
+    rootNotes: (state) => {
+      const notesStore = useNotesStore()
+      const childIds = new Set()
+      state.hierarchy.forEach(h => h.children.forEach(cid => childIds.add(cid)))
+      
+      // A root note is any hierarchy entry starting with 'note:' that is NOT a child of another node
+      return state.hierarchy
+        .filter(h => h.id.startsWith('note:') && !childIds.has(h.id))
+        .map(h => notesStore.noteById(h.id.replace('note:', '')))
+        .filter(Boolean)
+        .sort((a, b) => a.title.localeCompare(b.title))
+    },
+
+    /**
+     * Tree view for the active feed root.
      */
     selectedFeedTree: (state) => {
       if (!state.activeFeedId) return []
-      
-      const notesStore = useNotesStore()
-      const nodes = {}
-      state.hierarchy.forEach(h => {
-        nodes[h.id] = { ...h, resolvedChildren: [] }
-      })
+      return resolveTree(state, state.activeFeedId)
+    },
 
-      const getDisplayName = (id) => {
-        if (id.startsWith('label:')) return id.replace('label:', '', 1)
-        const noteId = id.replace('note:', '', 1)
-        const note = notesStore.noteById(noteId)
-        return note ? note.title : noteId
-      }
-
-      const resolve = (node, path = new Set()) => {
-        if (path.has(node.id)) return
-        const newPath = new Set(path)
-        newPath.add(node.id)
-
-        node.children.forEach(cid => {
-          if (nodes[cid]) {
-            const childNode = { ...nodes[cid], resolvedChildren: [] }
-            node.resolvedChildren.push(childNode)
-            resolve(childNode, newPath)
-          }
-        })
-        node.resolvedChildren.sort((a, b) => getDisplayName(a.id).localeCompare(getDisplayName(b.id)))
-      }
-
-      const root = nodes[state.activeFeedId]
-      if (!root) return []
-      
-      const focusedNode = { ...root, resolvedChildren: [] }
-      resolve(focusedNode)
-      return focusedNode.resolvedChildren
+    activeFeedDisplayName: (state) => {
+      if (!state.activeFeedId) return ''
+      return state.activeFeedId.split(':')[1]
     }
   },
 
@@ -120,9 +105,59 @@ export const useLabelsStore = defineStore('labels', {
       this.activeLabel = this.activeLabel === id ? null : id
     },
 
-    setFeed(id) {
+    async setFeed(id) {
       this.activeFeedId = id
-      this.activeLabel = null // Reset selected label when switching feeds
-    },
+      this.activeLabel = null
+    }
   },
 })
+
+/**
+ * Helper to build hierarchical tree with cycle detection.
+ * Resolves "virtual" nodes (nodes mentioned as children but missing from hierarchy list).
+ */
+function resolveTree(state, rootId) {
+  const notesStore = useNotesStore()
+  const nodes = {}
+
+  // 1. Build map from explicit hierarchy entries
+  state.hierarchy.forEach(h => {
+    nodes[h.id] = { ...h, resolvedChildren: [] }
+  })
+
+  // 2. Discover and create virtual nodes for children not in hierarchy list
+  state.hierarchy.forEach(h => {
+    h.children.forEach(cid => {
+      if (!nodes[cid]) {
+        nodes[cid] = { id: cid, children: [], resolvedChildren: [] }
+      }
+    })
+  })
+
+  const getDisplayName = (id) => {
+    if (id.includes(':')) return id.split(':')[1]
+    const note = notesStore.noteById(id.replace('note:', ''))
+    return note ? note.title : id
+  }
+
+  const resolve = (node, path = new Set()) => {
+    if (path.has(node.id)) return
+    const newPath = new Set(path)
+    newPath.add(node.id)
+
+    node.children.forEach(cid => {
+      if (nodes[cid]) {
+        const childNode = { ...nodes[cid], resolvedChildren: [] }
+        node.resolvedChildren.push(childNode)
+        resolve(childNode, newPath)
+      }
+    })
+    node.resolvedChildren.sort((a, b) => getDisplayName(a.id).localeCompare(getDisplayName(b.id)))
+  }
+
+  const root = nodes[rootId]
+  if (!root) return []
+  const focusedNode = { ...root, resolvedChildren: [] }
+  resolve(focusedNode)
+  return focusedNode.resolvedChildren
+}

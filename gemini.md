@@ -6,7 +6,7 @@ This document provides foundational mandates and architectural instructions for 
 Zenith is a **local-first, virtual-hierarchy note-taking application**. It rejects physical folder structures in favor of a strictly flat filesystem backed by a powerful, multi-parent virtual tree.
 
 ### Core Constraints
-- **Strictly Flat File Structure**: All notes (`.md`) must reside in the root of the active vault's `/notes` directory. Media must be in `/attachments`. **Subdirectories are strictly forbidden.**
+- **Strictly Flat File Structure**: All notes (`.md`) and drawings (`.excalidraw`) must reside in the root of the active vault's `/notes` directory. Media must be in `/attachments`. **Subdirectories are strictly forbidden.**
 - **Virtual Hierarchy (P&C)**: Organization is managed via a many-to-many relationship tree in `graph_moc.yaml`. Notes and labels can be nested interchangeably.
 - **YAML Source of Truth**: `graph_moc.yaml` is the absolute source of truth for the Library's structure. If a file exists in `/notes` but is missing from the YAML, the backend must automatically sync it as a root node.
 - **Referential Integrity**: Attachments use a reference counting system. Orphaned attachments must be garbage-collected.
@@ -19,6 +19,7 @@ Zenith is a **local-first, virtual-hierarchy note-taking application**. It rejec
 
 ### Frontend
 - **Framework**: Vue 3 (Composition API).
+- **React Integration**: Uses `veaury` to host Excalidraw (React) within the Vue app.
 - **Visualization**: **3D-force-graph** (Three.js) for an immersive Obsidian-style experience.
 - **State Management**: Pinia.
 - **Navigation**: Dual-mode sidebar (Feeds vs. Library) with drill-down focused views.
@@ -30,10 +31,11 @@ Zenith is a **local-first, virtual-hierarchy note-taking application**. It rejec
 - **Labels**: Nested organizational units within Feeds.
 - **Mentions**: Notes can have multiple parents in the hierarchy.
 
-### Navigation Logic
-- **Library**: Flat, alphabetical view of all notes.
-- **Feeds List**: Alphabetical view of root feeds.
-- **Focused Feed**: Recursive tree view starting from a specific root feed.
+### Drawing Workflow
+- **Creation**: Triggered via `/excali` slash command in the editor.
+- **Embedding**: Uses `![[id.excalidraw]]` syntax.
+- **Rendering**: The `ExcalidrawPreview` component renders embedded drawings as SVGs using the Excalidraw engine.
+- **Safe Persistence**: The drawing editor ensures all changes are flushed to disk before closing to prevent data loss.
 
 ## 4. Standard Operating Procedures for AI
 1. **Never create subdirectories** inside the vault.

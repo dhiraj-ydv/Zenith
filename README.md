@@ -9,12 +9,14 @@ Zenith enforces a **flat file structure** while providing a powerful **virtual h
 ## Features
 
 - **Unified Virtual Hierarchy** — Nest labels in labels, notes in labels, and even labels in notes. Organize your knowledge without being constrained by physical folders.
+- **Visual Brainstorming with Excalidraw** — Full-screen, immersive drawing editor integrated directly into the note-taking workflow.
+- **In-Note Drawing Embeds** — Embed drawings in any Markdown note using `![[DrawingName.excalidraw]]`.
+- **Live SVG Previews** — Drawings render as crisp, interactive SVGs directly within your notes, bridging the gap between text and visuals.
+- **Slash Commands** — Use `/excali` within any note to instantly create and jump into a new drawing.
 - **Feeds & Library Views** — Toggle between a hierarchical, curated **Feeds** view and a flat, master **Library** view of all notes.
 - **3D Knowledge Graph** — An immersive, Obsidian-style 3D visualization of your notes and their wikilink connections.
 - **Multi-Parent "Mentions"** — A single note can exist in multiple locations in your hierarchy simultaneously.
-- **Context-Aware Actions** — Independent search and creation actions tailored to your current view (Feeds, Library, or focused Hierarchy).
 - **YAML Map of Content** — `graph_moc.yaml` is the single source of truth for all virtual relationships and hierarchies.
-- **Flat Vault Architecture** — Notes live in a single `/notes` directory. No subdirectories permitted.
 - **LLM-Native API** — Token-efficient endpoints designed for AI agent consumption and graph traversal.
 
 ---
@@ -25,6 +27,7 @@ Zenith enforces a **flat file structure** while providing a powerful **virtual h
 |-----------|------------------------------------------|
 | Backend   | Python 3.10+ · FastAPI · PyYAML          |
 | Frontend  | Vue 3 · Vite · Pinia                     |
+| Drawing   | Excalidraw (React-in-Vue via Veaury)     |
 | Graph     | 3d-force-graph (Three.js)                |
 | Markdown  | marked                                   |
 | Database  | File System (Markdown + YAML)            |
@@ -68,7 +71,7 @@ npm run dev
 
 ```
 /vault
-├── /notes           # Flat .md files only
+├── /notes           # Flat .md and .excalidraw files
 ├── /attachments     # Media files (images, PDFs)
 └── graph_moc.yaml   # Master index (hierarchy + edges)
 ```
@@ -90,8 +93,8 @@ npm run dev
 |----------|---------------------------|------------------------|
 | `GET`    | `/api/notes`              | List all notes         |
 | `GET`    | `/api/notes/{id}`         | Get note by ID         |
-| `POST`   | `/api/notes`              | Create note            |
-| `PUT`    | `/api/notes/{id}`         | Update note + labels   |
+| `POST`   | `/api/notes`              | Create note or drawing |
+| `PUT`    | `/api/notes/{id}`         | Update note content    |
 | `DELETE` | `/api/notes/{id}`         | Delete note + GC       |
 
 ---

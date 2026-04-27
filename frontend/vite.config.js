@@ -1,8 +1,16 @@
 import { defineConfig } from 'vite'
-import vue from '@vitejs/plugin-vue'
+import veauryVitePlugins from 'veaury/vite/index.js'
 
 export default defineConfig({
-  plugins: [vue()],
+  plugins: [
+    veauryVitePlugins({
+      type: 'vue'
+    })
+  ],
+  define: {
+    // Excalidraw and React often depend on process.env
+    'process.env': {}
+  },
   server: {
     port: 5173,
     proxy: {

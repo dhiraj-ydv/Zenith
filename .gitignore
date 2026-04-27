@@ -14,6 +14,14 @@ dist-ssr/
 *.local
 .vscode/
 
+# Playwright
+test-results/
+playwright-report/
+blob-report/
+playwright/.cache/
+screenshot.png
+ui_debug.png
+
 # Project Specific
 .zenith/
 .gemini/

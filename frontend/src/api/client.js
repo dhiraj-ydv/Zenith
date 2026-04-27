@@ -54,7 +54,7 @@ export const attachmentsApi = {
 
 // ── Graph ────────────────────────────────────────────
 export const graphApi = {
-  data: () => api.get('/graph/data'),
+  data: (id) => api.get('/graph/data', { params: { id } }),
   index: () => api.get('/graph/index'),
 }
 

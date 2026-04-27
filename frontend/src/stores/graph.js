@@ -13,10 +13,11 @@ export const useGraphStore = defineStore('graph', {
   }),
 
   actions: {
-    async fetchGraph() {
+    async fetchGraph(id) {
       this.loading = true
+      this.error = null
       try {
-        const { data } = await graphApi.data()
+        const { data } = await graphApi.data(id)
         this.nodes = data.nodes
         this.edges = data.edges
       } catch (err) {

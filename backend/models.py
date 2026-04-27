@@ -50,6 +50,7 @@ class NoteCreate(BaseModel):
     title: str = Field(..., min_length=1, max_length=200)
     content: str = ""
     labels: list[str] = Field(default_factory=list)
+    type: str = "markdown" # "markdown" or "excalidraw"
 
 
 class NoteUpdate(BaseModel):
@@ -71,6 +72,7 @@ class NoteResponse(BaseModel):
     labels: list[str] = Field(default_factory=list)
     links: list[str] = Field(default_factory=list)
     attachments: list[str] = Field(default_factory=list)
+    type: str = "markdown"
 
 
 class NoteSummary(BaseModel):
@@ -78,6 +80,7 @@ class NoteSummary(BaseModel):
     id: str
     title: str
     labels: list[str] = Field(default_factory=list)
+    type: str = "markdown"
 
 
 class LabelCreate(BaseModel):
@@ -140,4 +143,3 @@ class VaultSettings(BaseModel):
 class VaultCreate(BaseModel):
     """Request to create or open a vault."""
     path: str
-

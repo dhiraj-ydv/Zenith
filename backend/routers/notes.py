@@ -43,13 +43,25 @@ async def get_note_raw(note_id: str):
     return {"id": note_id, "content": raw}
 
 
+@router.get("/{note_id}/preview")
+async def get_note_preview(note_id: str):
+    """Get PNG preview of a drawing."""
+    # Placeholder for now
+    raise HTTPException(status_code=404, detail="Preview not available")
+
+
 @router.post("", response_model=NoteResponse, status_code=201)
 async def create_note(body: NoteCreate):
-    """Create a new note."""
+    """Create a new note or drawing."""
     try:
-        return note_service.create_note(body.title, body.content, body.labels)
+        return note_service.create_note(
+            title=body.title, 
+            content=body.content, 
+            labels=body.labels,
+            note_type=body.type
+        )
     except ValueError as e:
-        raise HTTPException(status_code=409, detail=str(e))
+        raise HTTPException(status_code=400, detail=str(e))
 
 
 @router.put("/{note_id}", response_model=NoteResponse)

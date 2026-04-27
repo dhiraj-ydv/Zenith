@@ -1,5 +1,5 @@
 /**
- * Notes Store — Pinia store for note state management.
+ * Notes Store — Pinia store for note and drawing management.
  */
 import { defineStore } from 'pinia'
 import { notesApi } from '../api/client'
@@ -48,11 +48,11 @@ export const useNotesStore = defineStore('notes', {
       }
     },
 
-    async createNote(title, content = '', labels = []) {
+    async createNote(title, content = '', labels = [], type = 'markdown') {
       this.error = null
       try {
-        const { data } = await notesApi.create({ title, content, labels })
-        this.notes.push({ id: data.id, title: data.title, labels: data.labels })
+        const { data } = await notesApi.create({ title, content, labels, type })
+        this.notes.push({ id: data.id, title: data.title, labels: data.labels, type: data.type })
         this.activeNote = data
         return data
       } catch (err) {
@@ -70,10 +70,9 @@ export const useNotesStore = defineStore('notes', {
         if (labels !== undefined) payload.labels = labels
         const { data } = await notesApi.update(id, payload)
         this.activeNote = data
-        // Update list entry
         const idx = this.notes.findIndex((n) => n.id === id)
         if (idx >= 0) {
-          this.notes[idx] = { id: data.id, title: data.title, labels: data.labels }
+          this.notes[idx] = { ...data, content: data.content || content }
         }
         return data
       } catch (err) {
@@ -88,7 +87,6 @@ export const useNotesStore = defineStore('notes', {
       this.error = null
       try {
         const { data } = await notesApi.update(id, { labels })
-        // Update list entry
         const idx = this.notes.findIndex((n) => n.id === id)
         if (idx >= 0) {
           this.notes[idx].labels = data.labels
@@ -122,9 +120,8 @@ export const useNotesStore = defineStore('notes', {
       this.error = null
       try {
         const { data } = await notesApi.rename(id, newTitle)
-        // Remove old entry, add new
         this.notes = this.notes.filter((n) => n.id !== id)
-        this.notes.push({ id: data.id, title: data.title, labels: data.labels })
+        this.notes.push({ id: data.id, title: data.title, labels: data.labels, type: data.type })
         this.activeNote = data
         return data
       } catch (err) {

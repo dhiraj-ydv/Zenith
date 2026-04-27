@@ -6,12 +6,11 @@
         active: isActive,
         'drag-over': isDragOver,
         'is-label': isLabel,
-        'is-note': isNote,
-        'is-locked': isLocked
+        'is-note': isNote
       }"
       :style="{ paddingLeft: depth * 12 + 16 + 'px' }"
       @click="handleClick"
-      :draggable="!isLocked"
+      draggable="true"
       @dragstart="onDragStart($event)"
       @dragover.prevent="onDragOver"
       @dragleave="onDragLeave"
@@ -72,12 +71,11 @@ const notesStore = useNotesStore()
 const collapsed = ref(false)
 const isDragOver = ref(false)
 
-const isLocked = computed(() => ['label:Organized', 'label:Unorganized'].includes(props.node.id))
-const isLabel = computed(() => props.node.id.startsWith('label:'))
+const isLabel = computed(() => props.node.id.startsWith('label:') || props.node.id.startsWith('feed:'))
 const isNote = computed(() => props.node.id.startsWith('note:'))
 
 const displayName = computed(() => {
-  if (isLabel.value) return props.node.id.replace('label:', '', 1)
+  if (isLabel.value) return props.node.id.split(':')[1]
   const noteId = props.node.id.replace('note:', '', 1)
   const note = notesStore.noteById(noteId)
   return note ? note.title : noteId
@@ -100,34 +98,11 @@ function handleClick() {
 
 // Drag & Drop
 function onDragStart(event) {
-  if (isLocked.value) return
   event.dataTransfer.setData('nodeId', props.node.id)
   event.dataTransfer.effectAllowed = 'move'
 }
 
 function onDragOver(event) {
-  const draggedType = event.dataTransfer.types.includes('nodeId') ? 'unknown' : '' // We can't see the data during dragover in some browsers, but we can check target
-  
-  // Restriction check
-  if (props.node.id === 'label:Unorganized') {
-    // We allow dropping notes here, but not labels (though we can't easily see the type yet)
-    // For now, we allow the highlight but the backend will reject if it's a label.
-    isDragOver.value = true
-    event.dataTransfer.dropEffect = 'move'
-    return
-  }
-
-  // If target is a note, check if it's in Unorganized
-  if (isNote.value) {
-    const parentId = 'label:Unorganized'
-    const unorganizedNode = labelsStore.hierarchy.find(h => h.id === parentId)
-    if (unorganizedNode && unorganizedNode.children.includes(props.node.id)) {
-      // Cannot nest under notes in Unorganized
-      event.dataTransfer.dropEffect = 'none'
-      return
-    }
-  }
-
   isDragOver.value = true
   event.dataTransfer.dropEffect = 'move'
 }
@@ -142,12 +117,6 @@ async function onDrop(event) {
   const targetNodeId = props.node.id
   
   if (draggedNodeId === targetNodeId) return
-
-  // Special logic for mentions vs move
-  // If moving a note within organized, the backend move_node currently keeps all parents 
-  // unless it's moving labels or moving from unorganized.
-  // Actually, I'll update backend to be more explicit if needed, but let's test this.
-  
   await labelsStore.moveLabel(draggedNodeId, targetNodeId)
 }
 </script>
@@ -184,12 +153,6 @@ async function onDrop(event) {
 .hierarchy-item.active {
   background: var(--accent-glow);
   color: var(--accent-secondary);
-}
-
-.hierarchy-item.is-locked {
-  font-weight: 700;
-  color: var(--text-primary);
-  opacity: 0.9;
 }
 
 .hierarchy-item.is-note.active {

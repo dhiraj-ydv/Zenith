@@ -9,6 +9,7 @@
     <!-- Sidebar -->
     <Sidebar
       ref="sidebarRef"
+      v-show="vaultStore.activeVault && notesStore.activeNote?.type !== 'excalidraw'"
       v-if="vaultStore.activeVault"
       @select-note="handleSelectNote"
       @new-note="handleNewNote"
@@ -19,10 +20,20 @@
 
     <!-- Main Content -->
     <main class="main-content" v-if="vaultStore.activeVault">
-      <Editor
-        v-if="notesStore.activeNote && !showGraph"
-        :key="notesStore.activeNote.id"
-      />
+      <template v-if="notesStore.activeNote && !showGraph">
+        <!-- Switch between Markdown and Drawing based on note type -->
+        <DrawingEditor
+          v-if="notesStore.activeNote.type === 'excalidraw'"
+          :key="'drawing-' + notesStore.activeNote.id"
+          :note="notesStore.activeNote"
+          @close="handleCloseDrawing"
+        />
+        <Editor
+          v-else
+          :key="'note-' + notesStore.activeNote.id"
+        />
+      </template>
+
       <GraphView
         v-else-if="showGraph"
         @select-node="handleGraphNodeSelect"
@@ -39,6 +50,7 @@ import { useLabelsStore } from './stores/labels'
 import { useVaultStore } from './stores/vaults'
 import Sidebar from './components/Sidebar.vue'
 import Editor from './components/Editor.vue'
+import DrawingEditor from './components/DrawingEditor.vue'
 import GraphView from './components/GraphView.vue'
 import EmptyState from './components/EmptyState.vue'
 import VaultSwitcher from './components/VaultSwitcher.vue'
@@ -50,6 +62,14 @@ const vaultStore = useVaultStore()
 const showGraph = ref(false)
 const showVaultSwitcher = ref(false)
 const sidebarRef = ref(null)
+
+const lastMarkdownNoteId = ref(null)
+
+watch(() => notesStore.activeNote, (note) => {
+  if (note && note.type === 'markdown') {
+    lastMarkdownNoteId.value = note.id
+  }
+}, { immediate: true })
 
 onMounted(async () => {
   await vaultStore.init()
@@ -78,6 +98,14 @@ function handleNewNote() {
 function handleGraphNodeSelect(id) {
   showGraph.value = false
   notesStore.fetchNote(id)
+}
+
+function handleCloseDrawing() {
+  if (lastMarkdownNoteId.value) {
+    notesStore.fetchNote(lastMarkdownNoteId.value)
+  } else {
+    notesStore.activeNote = null
+  }
 }
 </script>
 
