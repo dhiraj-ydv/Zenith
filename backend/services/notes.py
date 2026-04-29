@@ -49,6 +49,12 @@ class NoteService:
             return self.vault.xjournal_dir / f"{note_id}.xopp"
         return self.vault.notes_dir / f"{note_id}.md"
 
+    @staticmethod
+    def _normalize_parent_id(parent_id: str) -> str:
+        if parent_id.startswith(("label:", "feed:", "note:")):
+            return parent_id
+        return f"label:{parent_id}"
+
     def _find_note_file(self, note_id: str) -> tuple[Path, str] | tuple[None, None]:
         """Find either .md in notes/, .excalidraw in attachments/Excalidraw/, .lorien in attachments/Lorien/, or .xopp in attachments/Xjournal/."""
         if not self.vault.get_active_vault():
@@ -160,14 +166,11 @@ class NoteService:
 
         # Add markdown, lorien, and xopp notes to the virtual hierarchy/sidebar
         if note_type in ["markdown", "lorien", "xopp"]:
+            self.moc.add_to_hierarchy(f"note:{note_id}")
             if labels:
                 for label in labels:
-                    full_id = label
-                    if not (full_id.startswith("label:") or full_id.startswith("feed:")):
-                        full_id = f"label:{label}"
+                    full_id = self._normalize_parent_id(label)
                     self.moc.add_to_hierarchy(f"note:{note_id}", full_id)
-            else:
-                self.moc.add_to_hierarchy(f"note:{note_id}")
 
         return self.get_note(note_id)  # type: ignore
 
@@ -180,12 +183,13 @@ class NoteService:
             path.write_text(content, encoding="utf-8")
         
         if labels is not None and note_type == "markdown":
-            self.moc.remove_from_hierarchy(f"note:{note_id}")
+            node_id = f"note:{note_id}"
+            self.moc.add_to_hierarchy(node_id)
+            self.moc._remove_from_parents(node_id, category_only=True)
             for label in labels:
-                full_id = label
-                if not (full_id.startswith("label:") or full_id.startswith("feed:")):
-                    full_id = f"label:{label}"
-                self.moc.add_to_hierarchy(f"note:{note_id}", full_id)
+                full_id = self._normalize_parent_id(label)
+                self.moc.add_to_hierarchy(node_id, full_id)
+            self.moc.save()
 
         return self.get_note(note_id)
 
@@ -216,10 +220,14 @@ class NoteService:
         if note_type == "markdown":
             moc = self.moc.get()
             old_nid = f"note:{old_id}"
-            parents = [n.id for n in moc.hierarchy if old_nid in n.children]
+            parents = self.moc.get_parent_ids(old_nid)
+            children = next((list(n.children) for n in moc.hierarchy if n.id == old_nid), [])
             self.moc.remove_from_hierarchy(f"note:{old_id}")
+            self.moc.add_to_hierarchy(f"note:{new_id}")
             for p_id in parents:
                 self.moc.add_to_hierarchy(f"note:{new_id}", p_id)
+            for child_id in children:
+                self.moc.add_to_hierarchy(child_id, f"note:{new_id}")
 
         return self.get_note(new_id)
 

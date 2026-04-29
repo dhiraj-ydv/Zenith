@@ -1,6 +1,6 @@
 """
-MOC Service — Unified hierarchy with strict exclusive membership (one parent per note).
-Optimized for clean YAML (removes redundant leaf entries).
+MOC Service — Unified hierarchy with cycle-safe parent/child relationships.
+Optimized for clean YAML while preserving nested note/label structures.
 """
 
 from __future__ import annotations
@@ -99,29 +99,37 @@ class MOCService:
             self._ensure_node(nid)
             changed = True
 
-        # 2. Cleanup: If a note is listed as a ROOT node in the hierarchy list 
-        # BUT it also exists as a child of another node, prune the redundant root entry.
-        child_ids = set()
+        # 3. Hierarchy Doctor: Detect and break floating cycles
+        # A floating cycle happens when nodes point to each other but no root points to them.
+        all_ids = {n.id for n in self._moc.hierarchy}
+        child_to_parents: dict[str, list[str]] = {}
         for n in self._moc.hierarchy:
             for cid in n.children:
-                child_ids.add(cid)
-
-        original_hierarchy = list(self._moc.hierarchy)
-        # Filter: Keep if it's not a note, or if it's a note that isn't redundant
-        # ALSO: Remove any note entries that don't match a tracked filesystem file
-        self._moc.hierarchy = [
-            n for n in original_hierarchy 
-            if not (n.id.startswith("note:") and (n.id in child_ids and not n.children))
-        ]
+                child_to_parents.setdefault(cid, []).append(n.id)
         
-        # Prune notes from hierarchy that don't exist as md/lorien/xopp on disk
-        self._moc.hierarchy = [
-            n for n in self._moc.hierarchy
-            if not (n.id.startswith("note:") and n.id not in fs_note_ids)
-        ]
+        # Roots are nodes with no parents
+        roots = {nid for nid in all_ids if nid not in child_to_parents}
         
-        if len(self._moc.hierarchy) != len(original_hierarchy):
-            changed = True
+        reachable = set()
+        def mark_reachable(nid):
+            if nid in reachable: return
+            reachable.add(nid)
+            node = next((n for n in self._moc.hierarchy if n.id == nid), None)
+            if node:
+                for cid in node.children: mark_reachable(cid)
+        
+        for root_id in roots:
+            mark_reachable(root_id)
+            
+        # Floating nodes are IDs in hierarchy that are not reachable
+        floating = all_ids - reachable
+        if floating:
+            # Break cycles by removing floating nodes from their parents' children list
+            for fid in floating:
+                for n in self._moc.hierarchy:
+                    if fid in n.children:
+                        n.children.remove(fid)
+                        changed = True
         
         if changed:
             self.save()
@@ -178,14 +186,56 @@ class MOCService:
             moc.hierarchy.append(node)
         return node
 
-    def add_to_hierarchy(self, node_id: str, parent_id: str | None = None) -> None:
-        """Add node to parent with strict single-parent enforcement."""
-        self._ensure_node(node_id)
+    def _is_descendant(self, potential_descendant_id: str, ancestor_id: str, path: set[str] | None = None) -> bool:
+        """Check if a node is already a descendant of another node (cycle detection)."""
+        if path is None: path = set()
+        if potential_descendant_id == ancestor_id: return True
+        if ancestor_id in path: return False # Cycle already present elsewhere
         
+        path.add(ancestor_id)
         moc = self.get()
-        for n in moc.hierarchy:
-            if node_id in n.children:
-                n.children.remove(node_id)
+        node = next((n for n in moc.hierarchy if n.id == ancestor_id), None)
+        if not node: return False
+        
+        for child_id in node.children:
+            if self._is_descendant(potential_descendant_id, child_id, path.copy()):
+                return True
+        return False
+
+    def _remove_from_parents(self, node_id: str, *, category_only: bool = False) -> None:
+        """Detach a node from its parents, optionally only from feed/label parents."""
+        moc = self.get()
+        for node in moc.hierarchy:
+            if category_only and not (node.id.startswith("label:") or node.id.startswith("feed:")):
+                continue
+            while node_id in node.children:
+                node.children.remove(node_id)
+
+    def get_parent_ids(self, node_id: str) -> list[str]:
+        """Return all direct parent IDs for a node."""
+        parents: list[str] = []
+        for node in self.get().hierarchy:
+            if node_id in node.children:
+                parents.append(node.id)
+        return parents
+
+    def _child_ids(self) -> set[str]:
+        child_ids: set[str] = set()
+        for node in self.get().hierarchy:
+            for child_id in node.children:
+                child_ids.add(child_id)
+        return child_ids
+
+    def add_to_hierarchy(self, node_id: str, parent_id: str | None = None, *, exclusive: bool = False) -> None:
+        """Attach a node to a parent, or reparent exclusively when requested."""
+        if parent_id and self._is_descendant(parent_id, node_id):
+            # Refuse move that would create a cycle
+            return
+
+        self._ensure_node(node_id)
+
+        if exclusive:
+            self._remove_from_parents(node_id)
 
         if parent_id:
             parent = self._ensure_node(parent_id)
@@ -195,7 +245,40 @@ class MOCService:
         self.save()
 
     def move_node(self, node_id: str, new_parent_id: str | None) -> None:
-        self.add_to_hierarchy(node_id, new_parent_id)
+        self.add_to_hierarchy(node_id, new_parent_id, exclusive=True)
+
+    def reorder_node(self, node_id: str, parent_id: str | None, index: int) -> None:
+        """Reorder a node among its siblings, including root-level nodes."""
+        moc = self.get()
+        bounded_index = max(0, index)
+
+        if parent_id:
+            parent = next((n for n in moc.hierarchy if n.id == parent_id), None)
+            if not parent or node_id not in parent.children:
+                return
+
+            siblings = list(parent.children)
+            siblings.remove(node_id)
+            bounded_index = min(bounded_index, len(siblings))
+            siblings.insert(bounded_index, node_id)
+            parent.children = siblings
+            self.save()
+            return
+
+        child_ids = self._child_ids()
+        root_entries = [node for node in moc.hierarchy if node.id not in child_ids]
+        root_ids = [node.id for node in root_entries]
+        if node_id not in root_ids:
+            return
+
+        root_ids.remove(node_id)
+        bounded_index = min(bounded_index, len(root_ids))
+        root_ids.insert(bounded_index, node_id)
+
+        root_map = {node.id: node for node in root_entries}
+        non_roots = [node for node in moc.hierarchy if node.id in child_ids]
+        moc.hierarchy = [root_map[rid] for rid in root_ids] + non_roots
+        self.save()
 
     def remove_from_hierarchy(self, node_id: str) -> None:
         moc = self.get()

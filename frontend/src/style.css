@@ -287,21 +287,27 @@ code {
 .tooltip::after {
   content: attr(data-tooltip);
   position: absolute;
-  bottom: calc(100% + 6px);
-  left: 50%;
-  transform: translateX(-50%) scale(0.95);
+  top: calc(100% + 6px);
+  right: 0;
+  transform: translateY(2px) scale(0.95);
   padding: 4px 10px;
   background: var(--bg-elevated);
   color: var(--text-primary);
   font-size: 0.75rem;
   border-radius: var(--radius-sm);
   border: 1px solid var(--border-default);
-  white-space: nowrap;
+  white-space: normal;
+  max-width: min(220px, calc(100vw - 24px));
+  width: max-content;
+  text-align: center;
+  line-height: 1.35;
+  word-break: break-word;
   opacity: 0;
   pointer-events: none;
   transition: all var(--transition-fast);
+  z-index: 1000;
 }
 .tooltip:hover::after {
   opacity: 1;
-  transform: translateX(-50%) scale(1);
+  transform: translateY(0) scale(1);
 }

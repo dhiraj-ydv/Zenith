@@ -3,7 +3,7 @@ Vault Service — Manages multiple vaults and global settings.
 """
 
 import json
-import os
+import tempfile
 from pathlib import Path
 
 from models import VaultSettings
@@ -18,6 +18,7 @@ class VaultManager:
 
     def __init__(self):
         self.settings: VaultSettings = self._load_settings()
+        self._sanitize_settings()
 
     def _load_settings(self) -> VaultSettings:
         if SETTINGS_FILE.exists():
@@ -31,6 +32,55 @@ class VaultManager:
     def _save_settings(self):
         SETTINGS_DIR.mkdir(parents=True, exist_ok=True)
         SETTINGS_FILE.write_text(self.settings.model_dump_json(indent=2), encoding="utf-8")
+
+    def _sanitize_settings(self) -> None:
+        """Drop duplicates/stale vaults and ensure the active vault is valid."""
+        unique_existing: list[str] = []
+        seen: set[str] = set()
+
+        for path in self.settings.vaults:
+            try:
+                resolved = str(Path(path).resolve())
+            except Exception:
+                continue
+            if resolved in seen:
+                continue
+            if self._is_disposable_test_vault(resolved):
+                continue
+            if not Path(resolved).exists():
+                continue
+            seen.add(resolved)
+            unique_existing.append(resolved)
+
+        active = self.settings.active_vault
+        if active:
+            try:
+                active = str(Path(active).resolve())
+            except Exception:
+                active = None
+        if active and active not in seen:
+            active = unique_existing[0] if unique_existing else None
+
+        changed = unique_existing != self.settings.vaults or active != self.settings.active_vault
+        self.settings.vaults = unique_existing
+        self.settings.active_vault = active
+
+        if changed:
+            self._save_settings()
+
+    @staticmethod
+    def _is_disposable_test_vault(path: str) -> bool:
+        """Ignore temporary vaults created by local test/debug runs."""
+        lowered = path.lower()
+        temp_root = str(Path(tempfile.gettempdir()).resolve()).lower()
+        if not lowered.startswith(temp_root):
+            return False
+        return (
+            "\\pytest-of-" in lowered
+            or "\\pytest-" in lowered
+            or "\\zenith_hier_" in lowered
+            or "\\zenith_verify_" in lowered
+        )
 
     def get_active_vault(self) -> str | None:
         return self.settings.active_vault

@@ -23,17 +23,6 @@
         </div>
       </div>
       <div class="editor-actions">
-        <button 
-          class="btn-icon tooltip" 
-          data-tooltip="Add to Hierarchy" 
-          @click="showLabelPicker = !showLabelPicker" 
-          :class="{ active: showLabelPicker }"
-        >
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <path d="M20.59 13.41L13.42 20.58C13.04 20.96 12.53 21.17 12 21.17C11.47 21.17 10.96 20.96 10.59 20.58L2 12V2H12L20.59 10.59C21.37 11.37 21.37 12.63 20.59 13.41Z"/>
-            <line x1="7" y1="7" x2="7.01" y2="7"/>
-          </svg>
-        </button>
         <div class="view-toggle">
           <button class="toggle-btn" :class="{ active: viewMode === 'edit' }" @click="viewMode = 'edit'">Edit</button>
           <button class="toggle-btn" :class="{ active: viewMode === 'split' }" @click="viewMode = 'split'">Split</button>
@@ -47,19 +36,6 @@
         </button>
       </div>
     </header>
-
-    <!-- Hierarchy Picker -->
-    <div class="label-picker" v-if="showLabelPicker">
-      <div class="picker-header">Add to Location</div>
-      <div class="picker-scroll-area">
-        <div class="label-picker-item" v-for="label in allLabels" :key="label.id">
-          <label class="label-checkbox">
-            <input type="checkbox" :checked="note.labels.includes(label.id.split(':')[1])" @change="toggleLabel(label.id)" />
-            <span>{{ label.id.split(':')[1] }}</span>
-          </label>
-        </div>
-      </div>
-    </div>
 
     <!-- Editor Body -->
     <div class="editor-body" :class="viewMode">
@@ -215,7 +191,6 @@
 import { ref, computed, watch, nextTick, onMounted } from 'vue'
 import { marked } from 'marked'
 import { useNotesStore } from '../stores/notes'
-import { useLabelsStore } from '../stores/labels'
 import { attachmentsApi } from '../api/client'
 import ExcalidrawPreview from './ExcalidrawPreview.vue'
 import LorienPreview from './LorienPreview.vue'
@@ -223,7 +198,6 @@ import XjournalPreview from './XjournalPreview.vue'
 import PdfViewer from './PdfViewer.vue'
 
 const notesStore = useNotesStore()
-const labelsStore = useLabelsStore()
 
 const content = ref('')
 const viewMode = ref('split')
@@ -235,7 +209,6 @@ const previewPane = ref(null)
 const fileInput = ref(null)
 const acceptedTypes = 'image/*,video/*,audio/*,application/pdf'
 const userInteracted = ref(false)
-const showLabelPicker = ref(false)
 const showNewDrawingModal = ref(false)
 const newDrawingTitle = ref('')
 const creationType = ref('excalidraw')
@@ -311,7 +284,6 @@ function handleViewerWheel(e) {
 let saveTimer = null
 
 const note = computed(() => notesStore.activeNote || { id: '', title: '', content: '', labels: [], links: [], attachments: [] })
-const allLabels = computed(() => labelsStore.hierarchy.filter(h => h.id.startsWith('label:') || h.id.startsWith('feed:')))
 
 const contentBlocks = computed(() => {
   if (!content.value) return [{ type: 'html', html: '<p style="color: var(--text-tertiary);">Nothing to preview</p>' }]
@@ -570,17 +542,9 @@ function startTitleEdit() { titleDraft.value = note.value.title; editingTitle.va
 async function saveTitle() {
   if (!titleDraft.value.trim() || titleDraft.value.trim() === note.value.title) { editingTitle.value = false; return }
   await notesStore.renameNote(note.value.id, titleDraft.value.trim())
-  editingTitle.value = false; labelsStore.fetchLabels()
+  editingTitle.value = false
 }
 function cancelTitleEdit() { editingTitle.value = false }
-
-async function toggleLabel(nodeId) {
-  const labelName = nodeId.split(':')[1]
-  const current = [...note.value.labels]
-  const idx = current.indexOf(labelName)
-  if (idx >= 0) current.splice(idx, 1); else current.push(labelName)
-  await notesStore.updateNoteLabels(note.value.id, current); labelsStore.fetchLabels()
-}
 
 const lastCursorPos = ref(0)
 function handleNewDrawing() {

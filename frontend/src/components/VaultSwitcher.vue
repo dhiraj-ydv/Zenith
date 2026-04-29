@@ -93,10 +93,12 @@ async function createNewVault() {
   padding: var(--space-2xl);
   width: 100%;
   max-width: 500px;
+  max-height: min(80vh, 720px);
   box-shadow: 0 20px 40px rgba(0, 0, 0, 0.4);
   display: flex;
   flex-direction: column;
   gap: var(--space-xl);
+  overflow: hidden;
 }
 
 .vault-header {
@@ -129,6 +131,24 @@ async function createNewVault() {
   display: flex;
   flex-direction: column;
   gap: var(--space-xs);
+  max-height: min(36vh, 320px);
+  overflow-y: auto;
+  padding-right: 6px;
+}
+
+.vault-list::-webkit-scrollbar {
+  width: 10px;
+}
+
+.vault-list::-webkit-scrollbar-thumb {
+  background: var(--border-subtle);
+  border-radius: 999px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+
+.vault-list::-webkit-scrollbar-track {
+  background: transparent;
 }
 
 .vault-item {

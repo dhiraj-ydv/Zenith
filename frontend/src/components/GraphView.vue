@@ -10,6 +10,19 @@
         <span class="graph-stats">{{ graphStore.nodes.length }} nodes · {{ graphStore.edges.length }} links</span>
       </div>
       <div class="graph-controls">
+        <div class="graph-search">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" class="search-icon">
+            <circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/>
+          </svg>
+          <input 
+            type="text" 
+            v-model="searchQuery" 
+            placeholder="Search notes..." 
+            @input="handleSearch"
+            @keydown.enter="focusFoundNode"
+          />
+          <button v-if="searchQuery" class="clear-search" @click="clearSearch">×</button>
+        </div>
         <button class="btn btn-ghost" @click="resetView">
           Recenter
         </button>
@@ -29,6 +42,10 @@
         <span class="legend-dot" style="background: #6366f1;"></span>
         <span>Note</span>
       </div>
+      <div v-if="searchQuery" class="legend-item">
+        <span class="legend-dot" style="background: #ff9f43;"></span>
+        <span>Search Match</span>
+      </div>
       <div class="hint">Scroll to zoom · Drag to rotate · Click note to open</div>
     </div>
   </div>
@@ -47,7 +64,64 @@ const wrapper = ref(null)
 const loadingStatus = ref('Loading 3D Engine...')
 const errorDetail = ref('')
 
+// Search state
+const searchQuery = ref('')
+const highlightedNodes = ref(new Set())
+
 let instance = null
+
+function handleSearch() {
+  if (!instance) return
+  
+  const query = searchQuery.value.toLowerCase().trim()
+  highlightedNodes.value.clear()
+  
+  if (query) {
+    const nodes = instance.graphData().nodes
+    nodes.forEach(node => {
+      if (node.name.toLowerCase().includes(query)) {
+        highlightedNodes.value.add(node.id)
+      }
+    })
+  }
+  
+  // Update node appearance - Only highlight match, don't dim others
+  instance
+    .nodeColor(node => {
+      if (query && highlightedNodes.value.has(node.id)) return '#ff9f43' // Orange for matches
+      return '#6366f1' // Standard purple for everything else
+    })
+    .nodeOpacity(0.9)
+    .linkColor(() => 'rgba(255,255,255,0.2)')
+    
+  // Force redraw of 3D objects to update labels
+  instance.nodeThreeObject(instance.nodeThreeObject())
+}
+
+function clearSearch() {
+  searchQuery.value = ''
+  handleSearch()
+}
+
+function focusFoundNode() {
+  if (!instance || highlightedNodes.value.size === 0) return
+  
+  // Find the first matching node
+  const firstId = Array.from(highlightedNodes.value)[0]
+  const nodes = instance.graphData().nodes
+  const node = nodes.find(n => n.id === firstId)
+  
+  if (node) {
+    // Aim camera at node
+    const distance = 40
+    const distRatio = 1 + distance/Math.hypot(node.x, node.y, node.z)
+    instance.cameraPosition(
+      { x: node.x * distRatio, y: node.y * distRatio, z: node.z * distRatio }, // new pos
+      node, // lookAt
+      1000  // ms transition
+    )
+  }
+}
 
 function isWebGLAvailable() {
   try {
@@ -58,9 +132,22 @@ function isWebGLAvailable() {
   }
 }
 
+const THREE_CDN = 'https://unpkg.com/three@0.160.0/build/three.min.js'
+
 async function loadLibrary() {
-  if (window.ForceGraph3D) return window.ForceGraph3D
+  if (window.ForceGraph3D && window.THREE) return window.ForceGraph3D
   
+  // Load Three.js first
+  if (!window.THREE) {
+    await new Promise((resolve, reject) => {
+      const script = document.createElement('script')
+      script.src = THREE_CDN
+      script.onload = resolve
+      script.onerror = reject
+      document.head.appendChild(script)
+    })
+  }
+
   return new Promise((resolve, reject) => {
     const script = document.createElement('script')
     script.src = GRAPH_CDN
@@ -108,18 +195,94 @@ function initGraph(ForceGraph3D) {
     instance = ForceGraph3D()(graphCanvas.value)
       .graphData(gData)
       .backgroundColor('#050508')
-      .nodeColor(() => '#6366f1')
-      .nodeLabel('name')
+      .nodeColor(node => {
+        if (searchQuery.value && highlightedNodes.value.has(node.id)) return '#ff9f43'
+        return '#6366f1'
+      })
+      .nodeLabel(node => {
+        const name = node.name
+        const query = searchQuery.value.toLowerCase().trim()
+        if (!query) return name
+        
+        // Highlight matching characters in the tooltip as well
+        const regex = new RegExp(`(${query})`, 'gi')
+        return name.replace(regex, '<span style="color: #ff9f43; font-weight: bold;">$1</span>')
+      })
       .nodeOpacity(0.9)
       .nodeRelSize(4)
       .linkColor(() => 'rgba(255,255,255,0.2)')
-      .linkWidth(1)
-      .linkDirectionalParticles(2)
-      .linkDirectionalParticleSpeed(0.005)
+      .linkWidth(2)
+      .linkDirectionalParticles(3)
+      .linkDirectionalParticleSpeed(0.008)
       .onNodeClick(node => {
         emit('select-node', node.id)
       })
       .showNavInfo(false)
+      
+    // Add permanent labels
+    instance.nodeThreeObject(node => {
+      // Create a group to hold both sphere and text
+      const group = new THREE.Group()
+      
+      // The "dot" (sphere)
+      const isMatch = searchQuery.value && highlightedNodes.value.has(node.id)
+      const color = isMatch ? '#ff9f43' : '#6366f1'
+      const sphere = new THREE.Mesh(
+        new THREE.SphereGeometry(5),
+        new THREE.MeshLambertMaterial({ color, transparent: true, opacity: 0.9 })
+      )
+      group.add(sphere)
+
+      // The label (sprite)
+      const canvas = document.createElement('canvas')
+      const ctx = canvas.getContext('2d')
+      const text = node.name
+      const query = searchQuery.value.toLowerCase().trim()
+      
+      // Larger, thicker font
+      const fontSize = 32
+      ctx.font = `bold ${fontSize}px Inter, system-ui, sans-serif`
+      const textWidth = ctx.measureText(text).width
+      canvas.width = textWidth + 40
+      canvas.height = fontSize * 1.5
+      
+      ctx.font = `bold ${fontSize}px Inter, system-ui, sans-serif`
+      ctx.textAlign = 'center'
+      ctx.textBaseline = 'middle'
+      
+      const xCenter = canvas.width / 2
+      const yCenter = canvas.height / 2
+      
+      // Draw text with partial highlighting
+      if (query && text.toLowerCase().includes(query)) {
+        const parts = text.split(new RegExp(`(${query})`, 'gi'))
+        let currentX = xCenter - textWidth / 2
+        
+        parts.forEach(part => {
+          const isPartMatch = part.toLowerCase() === query
+          ctx.fillStyle = isPartMatch ? '#ff9f43' : '#ffffff'
+          ctx.font = `bold ${fontSize}px Inter, system-ui, sans-serif`
+          
+          ctx.fillText(part, currentX + ctx.measureText(part).width / 2, yCenter)
+          currentX += ctx.measureText(part).width
+        })
+      } else {
+        ctx.fillStyle = '#ffffff'
+        ctx.globalAlpha = 0.8
+        ctx.fillText(text, xCenter, yCenter)
+      }
+
+      const texture = new THREE.CanvasTexture(canvas)
+      const spriteMaterial = new THREE.SpriteMaterial({ map: texture, transparent: true })
+      const sprite = new THREE.Sprite(spriteMaterial)
+      
+      // Position label below the dot
+      sprite.scale.set(canvas.width / 8, canvas.height / 8, 1)
+      sprite.position.set(0, -15, 0)
+      
+      group.add(sprite)
+      return group
+    })
 
     // Fit to container dimensions
     if (wrapper.value) {
@@ -217,6 +380,57 @@ onUnmounted(() => {
   background: var(--bg-tertiary);
   padding: 2px 10px;
   border-radius: var(--radius-full);
+}
+
+.graph-controls {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+}
+
+.graph-search {
+  display: flex;
+  align-items: center;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  padding: 0 var(--space-sm);
+  height: 32px;
+  width: 220px;
+  transition: width 0.2s, border-color 0.2s;
+}
+.graph-search:focus-within {
+  width: 300px;
+  border-color: var(--accent-primary);
+  background: var(--bg-secondary);
+}
+.search-icon {
+  color: var(--text-tertiary);
+  margin-right: var(--space-xs);
+  flex-shrink: 0;
+}
+.graph-search input {
+  background: transparent;
+  border: none;
+  color: var(--text-primary);
+  font-size: 0.8125rem;
+  width: 100%;
+  outline: none;
+}
+.clear-search {
+  background: transparent;
+  border: none;
+  color: var(--text-tertiary);
+  cursor: pointer;
+  padding: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.2rem;
+  line-height: 1;
+}
+.clear-search:hover {
+  color: var(--text-primary);
 }
 
 .graph-canvas-wrapper {

@@ -33,8 +33,9 @@ export const notesApi = {
 // ── Labels ───────────────────────────────────────────
 export const labelsApi = {
   list: () => api.get('/labels'),
-  create: (name) => api.post('/labels', { name }),
+  create: (name, parent = null) => api.post('/labels', { name, parent }),
   move: (name, newParent) => api.post(`/labels/${encodeURIComponent(name)}/move`, { new_parent: newParent }),
+  reorder: (name, parentId, index) => api.post(`/labels/${encodeURIComponent(name)}/reorder`, { parent_id: parentId, index }),
   delete: (name) => api.delete(`/labels/${encodeURIComponent(name)}`),
 }
 

@@ -22,7 +22,9 @@ export const useLabelsStore = defineStore('labels', {
     rootFeeds: (state) => {
       const childIds = new Set()
       state.hierarchy.forEach(h => h.children.forEach(cid => childIds.add(cid)))
-      return state.hierarchy.filter(h => (h.id.startsWith('label:') || h.id.startsWith('feed:')) && !childIds.has(h.id))
+      return state.hierarchy
+        .filter(h => (h.id.startsWith('label:') || h.id.startsWith('feed:')) && !childIds.has(h.id))
+        .sort((a, b) => a.id.split(':')[1].localeCompare(b.id.split(':')[1]))
     },
 
     /**
@@ -68,9 +70,9 @@ export const useLabelsStore = defineStore('labels', {
       }
     },
 
-    async createLabel(name) {
+    async createLabel(name, parent = null) {
       try {
-        const { data } = await labelsApi.create(name)
+        const { data } = await labelsApi.create(name, parent)
         await this.fetchLabels()
         return data
       } catch (err) {
@@ -82,6 +84,17 @@ export const useLabelsStore = defineStore('labels', {
     async moveLabel(nodeId, newParentId) {
       try {
         await labelsApi.move(nodeId, newParentId)
+        await this.fetchLabels()
+        return true
+      } catch (err) {
+        this.error = err.message
+        return false
+      }
+    },
+
+    async reorderNode(nodeId, parentId, index) {
+      try {
+        await labelsApi.reorder(nodeId, parentId, index)
         await this.fetchLabels()
         return true
       } catch (err) {
@@ -135,6 +148,10 @@ function resolveTree(state, rootId) {
   })
 
   const getDisplayName = (id) => {
+    if (id.startsWith('note:')) {
+      const note = notesStore.noteById(id.replace('note:', ''))
+      return note ? note.title : id.split(':')[1]
+    }
     if (id.includes(':')) return id.split(':')[1]
     const note = notesStore.noteById(id.replace('note:', ''))
     return note ? note.title : id
@@ -152,7 +169,6 @@ function resolveTree(state, rootId) {
         resolve(childNode, newPath)
       }
     })
-    node.resolvedChildren.sort((a, b) => getDisplayName(a.id).localeCompare(getDisplayName(b.id)))
   }
 
   const root = nodes[rootId]

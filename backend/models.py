@@ -86,11 +86,18 @@ class NoteSummary(BaseModel):
 class LabelCreate(BaseModel):
     """Create a new label."""
     name: str = Field(..., min_length=1, max_length=100)
+    parent: str | None = None
 
 
 class LabelMove(BaseModel):
     """Move a label subtree."""
     new_parent: str | None = None
+
+
+class LabelReorder(BaseModel):
+    """Reorder a node among its siblings."""
+    parent_id: str | None = None
+    index: int = Field(..., ge=0)
 
 
 class LabelUpdate(BaseModel):

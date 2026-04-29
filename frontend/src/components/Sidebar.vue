@@ -35,12 +35,7 @@
       </button>
     </div>
 
-    <!-- Main Title -->
-    <div class="sidebar-header">
-       <h2 class="sidebar-title">Library</h2>
-    </div>
-
-    <!-- Creation Actions -->
+    <!-- Main Content Area -->
     <div class="sidebar-actions-container">
       <div class="contextual-header">
          <template v-if="!labelsStore.activeFeedId">
@@ -50,9 +45,8 @@
               @dragleave="dragOverTarget = null"
               @drop.stop="onDropOnRoot($event)"
             >
+               <h2 class="sidebar-title">Library</h2>
                <div class="header-pill-group">
-                  <span class="header-label">LIBRARY</span>
-                  <div class="header-divider-v"></div>
                   <button :class="{ active: rootFilter === 'all' }" @click="rootFilter = 'all'">All</button>
                   <button :class="{ active: rootFilter === 'feeds' }" @click="rootFilter = 'feeds'">Feeds</button>
                   <button :class="{ active: rootFilter === 'notes' }" @click="rootFilter = 'notes'">Notes</button>
@@ -119,8 +113,8 @@
               class="nav-card"
               :class="{ 'drag-over': dragOverTarget === feed.id }"
               @click="labelsStore.setFeed(feed.id)"
-              @dragover.prevent="dragOverTarget = feed.id"
-              @dragleave="dragOverTarget = null"
+              @dragover.prevent="handleFeedDragOver($event, feed.id)"
+              @dragleave="handleFeedDragLeave"
               @drop.stop="onDropOnFeed($event, feed.id)"
             >
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -166,10 +160,17 @@
       <div v-else class="focused-view">
           <div class="hierarchy-list">
              <HierarchyItem 
-              v-for="node in filteredFocusedTree" 
+             v-for="(node, index) in filteredFocusedTree" 
               :key="node.id" 
               :node="node"
+              :parent-id="labelsStore.activeFeedId"
+              :sibling-index="index"
+              :sibling-count="filteredFocusedTree.length"
               @select-note="(id) => $emit('select-note', id)"
+              @request-create="handleHierarchyCreate"
+              @request-move-root="moveNodeToFeedRoot"
+              @request-move-library-root="moveNodeToLibraryRoot"
+              @request-move-other-feed="openMoveFeedModal"
             />
             <div v-if="filteredFocusedTree.length === 0" class="empty-state">
               {{ focusedSearchQuery ? 'No matches found' : 'Empty Feed' }}
@@ -202,6 +203,99 @@
           </div>
         </div>
       </div>
+
+      <div class="modal-overlay" v-if="showMoveFeedModal" @click.self="closeMoveFeedModal">
+        <div class="modal fade-in move-feed-modal">
+          <div class="move-feed-header">
+            <button v-if="moveFeedStep === 'placement'" class="btn-icon back-btn move-feed-back" @click="moveFeedStep = 'feeds'; moveFeedQuery = ''">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M15 18l-6-6 6-6" /></svg>
+            </button>
+            <h3 class="modal-title">{{ moveFeedStep === 'feeds' ? 'Move To Other Feed' : `Place In ${movePlacementFeedId?.split(':')[1] || ''}` }}</h3>
+          </div>
+          <input
+            ref="moveFeedInput"
+            type="text"
+            class="input"
+            :placeholder="moveFeedStep === 'feeds' ? 'Search feeds...' : 'Search inside feed...'"
+            v-model="moveFeedQuery"
+          />
+          <div class="move-feed-list">
+            <template v-if="moveFeedStep === 'feeds'">
+              <button
+                class="move-feed-item"
+                :class="{ active: selectedMoveFeedTarget === '__root__' }"
+                @click="selectedMoveFeedTarget = '__root__'"
+              >
+                <div class="move-feed-main">
+                  <span class="move-feed-name">Library Root</span>
+                  <span class="move-feed-path">Move out of feeds</span>
+                </div>
+                <button
+                  class="move-feed-icon minus icon-action-btn"
+                  title="Move to library root"
+                  @click.stop="moveNodeDirectlyToTarget('__root__')"
+                >
+                  -
+                </button>
+              </button>
+
+              <button
+                v-for="feed in fuzzyFilteredFeeds"
+                :key="feed.id"
+                class="move-feed-item"
+                :class="{ active: selectedMoveFeedTarget === feed.id }"
+                @click="openPlacementStep(feed.id)"
+              >
+                <div class="move-feed-main">
+                  <span class="move-feed-name">{{ feed.id.split(':')[1] }}</span>
+                  <span class="move-feed-path">{{ feed.id }}</span>
+                </div>
+                <button
+                  class="move-feed-icon plus icon-action-btn"
+                  title="Open feed placement"
+                  @click.stop="openPlacementStep(feed.id)"
+                >
+                  +
+                </button>
+              </button>
+
+              <div v-if="fuzzyFilteredFeeds.length === 0" class="move-feed-empty">
+                No feeds match your search
+              </div>
+            </template>
+
+            <template v-else>
+              <button class="move-feed-item root-option" @click="moveNodeToFeedRootOf(movePlacementFeedId)">
+                <div class="move-feed-main">
+                  <span class="move-feed-name">Feed Root</span>
+                  <span class="move-feed-path">Place directly under {{ movePlacementFeedId?.split(':')[1] }}</span>
+                </div>
+                <span class="move-feed-icon plus">+</span>
+              </button>
+
+              <MovePlacementItem
+                v-for="(node, index) in movePlacementTree"
+                :key="node.id"
+                :node="node"
+                :parent-id="movePlacementFeedId"
+                :sibling-index="index"
+                @place-child="placeMovedNodeInside"
+                @place-parent="placeMovedNodeAsParent"
+                @place-sibling="placeMovedNodeAsSibling"
+              />
+
+              <div v-if="movePlacementTree.length === 0" class="move-feed-empty">
+                No matching targets in this feed
+              </div>
+            </template>
+          </div>
+          <div class="modal-actions">
+            <button class="btn btn-ghost" @click="closeMoveFeedModal">Cancel</button>
+            <button v-if="moveFeedStep === 'feeds'" class="btn btn-primary" :disabled="!selectedMoveFeedTarget" @click="confirmMoveToFeed">Select</button>
+            <button v-else class="btn btn-primary" @click="moveNodeToFeedRootOf(movePlacementFeedId)">Place At Feed Root</button>
+          </div>
+        </div>
+      </div>
     </Teleport>
   </aside>
 </template>
@@ -212,6 +306,7 @@ import { useNotesStore } from '../stores/notes'
 import { useLabelsStore } from '../stores/labels'
 import { useGraphStore } from '../stores/graph'
 import HierarchyItem from './HierarchyItem.vue'
+import MovePlacementItem from './MovePlacementItem.vue'
 
 const emit = defineEmits(['select-note', 'new-note', 'toggle-graph', 'switch-vault'])
 
@@ -222,11 +317,20 @@ const graphStore = useGraphStore()
 const rootFilter = ref('all') 
 const showNewNoteModal = ref(false)
 const showNewLabelModal = ref(false)
+const showMoveFeedModal = ref(false)
 const newNoteTitle = ref('')
 const newLabelName = ref('')
 const newNoteTitleInput = ref(null)
+const moveFeedInput = ref(null)
 const dragOverTarget = ref(null)
+const creationPlan = ref(null)
+const moveFeedNodeId = ref(null)
+const moveFeedQuery = ref('')
+const selectedMoveFeedTarget = ref('')
+const moveFeedStep = ref('feeds')
+const movePlacementFeedId = ref(null)
 let backHoverTimer = null
+let feedHoverTimer = null
 
 const creationType = ref('feed') 
 
@@ -296,6 +400,85 @@ const filteredFocusedTree = computed(() => {
   return filterNodes(tree)
 })
 
+const fuzzyFilteredFeeds = computed(() => {
+  const feeds = labelsStore.rootFeeds.filter(feed => feed.id !== labelsStore.activeFeedId)
+  const query = moveFeedQuery.value.trim().toLowerCase()
+  if (!query) return feeds
+
+  return feeds
+    .map(feed => ({
+      feed,
+      score: fuzzyScore(feed.id.split(':')[1].toLowerCase(), query),
+    }))
+    .filter(entry => entry.score > Number.NEGATIVE_INFINITY)
+    .sort((a, b) => b.score - a.score || a.feed.id.localeCompare(b.feed.id))
+    .map(entry => entry.feed)
+})
+
+const movePlacementTree = computed(() => {
+  if (!movePlacementFeedId.value) return []
+  const tree = resolveTreeForFeed(movePlacementFeedId.value)
+  const query = moveFeedQuery.value.trim().toLowerCase()
+  if (!query) return tree
+
+  const getDisplayName = (id) => {
+    if (id.startsWith('note:')) {
+      const note = notesStore.noteById(id.replace('note:', ''))
+      return note ? note.title : id.split(':')[1]
+    }
+    return id.split(':')[1]
+  }
+
+  function filterNodes(nodes) {
+    return nodes
+      .map(node => {
+        const filteredChildren = filterNodes(node.resolvedChildren || [])
+        if (getDisplayName(node.id).toLowerCase().includes(query) || filteredChildren.length > 0) {
+          return { ...node, resolvedChildren: filteredChildren }
+        }
+        return null
+      })
+      .filter(Boolean)
+  }
+
+  return filterNodes(tree)
+})
+
+function resolveTreeForFeed(rootId) {
+  const nodes = {}
+
+  labelsStore.hierarchy.forEach(h => {
+    nodes[h.id] = { ...h, resolvedChildren: [] }
+  })
+
+  labelsStore.hierarchy.forEach(h => {
+    h.children.forEach(cid => {
+      if (!nodes[cid]) {
+        nodes[cid] = { id: cid, children: [], resolvedChildren: [] }
+      }
+    })
+  })
+
+  const resolve = (node, path = new Set()) => {
+    if (path.has(node.id)) return
+    const nextPath = new Set(path)
+    nextPath.add(node.id)
+
+    node.children.forEach(cid => {
+      if (!nodes[cid]) return
+      const childNode = { ...nodes[cid], resolvedChildren: [] }
+      node.resolvedChildren.push(childNode)
+      resolve(childNode, nextPath)
+    })
+  }
+
+  const root = nodes[rootId]
+  if (!root) return []
+  const focusedNode = { ...root, resolvedChildren: [] }
+  resolve(focusedNode)
+  return focusedNode.resolvedChildren
+}
+
 const vClickOutside = {
   mounted(el, binding) {
     el.clickOutsideEvent = (event) => {
@@ -311,6 +494,7 @@ const vClickOutside = {
 // Handlers
 function handleNewNoteAction() {
   creationType.value = 'note'
+  creationPlan.value = null
   showNewNoteModal.value = true
 }
 
@@ -331,11 +515,13 @@ function handleNewXjournalAction() {
 
 function handleNewFeedRootAction() {
   creationType.value = 'feed'
+  creationPlan.value = null
   showNewLabelModal.value = true
 }
 
 function handleNewLabelAction() {
   creationType.value = 'label'
+  creationPlan.value = null
   showNewLabelModal.value = true
 }
 
@@ -347,7 +533,7 @@ function handleToggleGraph() {
 async function createNote() {
   if (!newNoteTitle.value.trim()) return
   let labels = []
-  const targetId = labelsStore.activeLabel || labelsStore.activeFeedId
+  const targetId = creationPlan.value?.targetParentId || labelsStore.activeLabel || labelsStore.activeFeedId
   if (targetId) labels = [targetId]
 
   let type = 'markdown'
@@ -362,10 +548,12 @@ async function createNote() {
   const setActive = type !== 'xopp'
   const note = await notesStore.createNote(newNoteTitle.value.trim(), content, labels, type, setActive)
   if (note) {
+    await finalizeCreatedNode(`note:${note.id}`)
     showNewNoteModal.value = false
     emit('select-note', note.id)
     emit('new-note')
     await labelsStore.fetchLabels()
+    creationPlan.value = null
   } else {
     alert(notesStore.error || 'Failed to create file. A file with this name might already exist.')
   }
@@ -374,19 +562,172 @@ async function createNote() {
 async function createGenericLabel() {
   if (!newLabelName.value.trim()) return
   const name = newLabelName.value.trim()
+  const targetParent = creationPlan.value?.targetParentId || labelsStore.activeLabel || labelsStore.activeFeedId
   
   if (creationType.value === 'feed') {
     await labelsStore.createLabel(`feed:${name}`)
   } else {
-    const result = await labelsStore.createLabel(`label:${name}`)
-    const targetParent = labelsStore.activeLabel || labelsStore.activeFeedId
-    if (result && targetParent) {
-      await labelsStore.moveLabel(result.id, targetParent)
+    const result = await labelsStore.createLabel(`label:${name}`, targetParent)
+    if (result) {
+      await finalizeCreatedNode(result.id)
     }
   }
   
   showNewLabelModal.value = false
   newLabelName.value = ''
+  creationPlan.value = null
+}
+
+async function finalizeCreatedNode(createdNodeId) {
+  if (!creationPlan.value) return
+
+  if (creationPlan.value.reorderParentId !== undefined && creationPlan.value.reorderIndex !== null) {
+    await labelsStore.reorderNode(createdNodeId, creationPlan.value.reorderParentId, creationPlan.value.reorderIndex)
+  }
+
+  if (creationPlan.value.wrapCurrentNodeId) {
+    await labelsStore.moveLabel(creationPlan.value.wrapCurrentNodeId, createdNodeId)
+  }
+}
+
+function handleHierarchyCreate(request) {
+  if (!labelsStore.activeFeedId) return
+
+  if (request.kind === 'note') {
+    creationType.value = 'note'
+    showNewNoteModal.value = true
+  } else {
+    creationType.value = 'label'
+    showNewLabelModal.value = true
+  }
+
+  if (request.mode === 'child') {
+    creationPlan.value = {
+      targetParentId: request.nodeId,
+      reorderParentId: null,
+      reorderIndex: null,
+      wrapCurrentNodeId: null,
+    }
+    return
+  }
+
+  if (request.mode === 'sibling') {
+    creationPlan.value = {
+      targetParentId: request.parentId,
+      reorderParentId: request.parentId,
+      reorderIndex: request.insertIndex,
+      wrapCurrentNodeId: null,
+    }
+    return
+  }
+
+  if (request.mode === 'wrap') {
+    creationPlan.value = {
+      targetParentId: request.parentId,
+      reorderParentId: request.parentId,
+      reorderIndex: request.insertIndex,
+      wrapCurrentNodeId: request.nodeId,
+    }
+  }
+}
+
+async function moveNodeToFeedRoot(nodeId) {
+  if (!labelsStore.activeFeedId) return
+  await labelsStore.moveLabel(nodeId, labelsStore.activeFeedId)
+}
+
+async function moveNodeToLibraryRoot(nodeId) {
+  await labelsStore.moveLabel(nodeId, null)
+}
+
+function openMoveFeedModal(nodeId) {
+  moveFeedNodeId.value = nodeId
+  moveFeedQuery.value = ''
+  selectedMoveFeedTarget.value = ''
+  moveFeedStep.value = 'feeds'
+  movePlacementFeedId.value = null
+  showMoveFeedModal.value = true
+  nextTick(() => moveFeedInput.value?.focus())
+}
+
+function closeMoveFeedModal() {
+  showMoveFeedModal.value = false
+  moveFeedNodeId.value = null
+  moveFeedQuery.value = ''
+  selectedMoveFeedTarget.value = ''
+  moveFeedStep.value = 'feeds'
+  movePlacementFeedId.value = null
+}
+
+async function confirmMoveToFeed() {
+  if (!moveFeedNodeId.value || !selectedMoveFeedTarget.value) return
+  const target = selectedMoveFeedTarget.value === '__root__' ? null : selectedMoveFeedTarget.value
+  await labelsStore.moveLabel(moveFeedNodeId.value, target)
+  closeMoveFeedModal()
+}
+
+async function moveNodeDirectlyToTarget(targetId) {
+  if (!moveFeedNodeId.value) return
+  const target = targetId === '__root__' ? null : targetId
+  await labelsStore.moveLabel(moveFeedNodeId.value, target)
+  closeMoveFeedModal()
+}
+
+function openPlacementStep(feedId) {
+  movePlacementFeedId.value = feedId
+  moveFeedStep.value = 'placement'
+  moveFeedQuery.value = ''
+  selectedMoveFeedTarget.value = feedId
+  nextTick(() => moveFeedInput.value?.focus())
+}
+
+async function moveNodeToFeedRootOf(feedId) {
+  if (!moveFeedNodeId.value || !feedId) return
+  await labelsStore.moveLabel(moveFeedNodeId.value, feedId)
+  closeMoveFeedModal()
+}
+
+async function placeMovedNodeInside(targetId) {
+  if (!moveFeedNodeId.value) return
+  await labelsStore.moveLabel(moveFeedNodeId.value, targetId)
+  closeMoveFeedModal()
+}
+
+async function placeMovedNodeAsSibling({ parentId, index }) {
+  if (!moveFeedNodeId.value) return
+  await labelsStore.moveLabel(moveFeedNodeId.value, parentId)
+  await labelsStore.reorderNode(moveFeedNodeId.value, parentId, index)
+  closeMoveFeedModal()
+}
+
+async function placeMovedNodeAsParent({ targetId, parentId, index }) {
+  if (!moveFeedNodeId.value || !targetId) return
+  await labelsStore.moveLabel(moveFeedNodeId.value, parentId)
+  await labelsStore.reorderNode(moveFeedNodeId.value, parentId, index)
+  await labelsStore.moveLabel(targetId, moveFeedNodeId.value)
+  closeMoveFeedModal()
+}
+
+function fuzzyScore(text, query) {
+  if (!query) return 0
+  if (text.includes(query)) return 1000 - (text.length - query.length)
+
+  let score = 0
+  let qIndex = 0
+  let streak = 0
+
+  for (let i = 0; i < text.length && qIndex < query.length; i += 1) {
+    if (text[i] === query[qIndex]) {
+      score += 10 + streak * 4
+      streak += 1
+      qIndex += 1
+    } else {
+      streak = 0
+    }
+  }
+
+  if (qIndex !== query.length) return Number.NEGATIVE_INFINITY
+  return score - (text.length - query.length)
 }
 
 function onDragStartLibraryNote(event, noteId) {
@@ -396,6 +737,8 @@ function onDragStartLibraryNote(event, noteId) {
 
 async function onDropOnFeed(event, feedId) {
   dragOverTarget.value = null
+  if (feedHoverTimer) clearTimeout(feedHoverTimer)
+  
   const nodeId = event.dataTransfer.getData('nodeId')
   if (nodeId) {
     await labelsStore.moveLabel(nodeId, feedId)
@@ -405,11 +748,31 @@ async function onDropOnFeed(event, feedId) {
 async function onDropOnRoot(event) {
   dragOverTarget.value = null
   if (backHoverTimer) clearTimeout(backHoverTimer)
+  if (feedHoverTimer) clearTimeout(feedHoverTimer)
   
   const nodeId = event.dataTransfer.getData('nodeId')
   if (nodeId) {
     await labelsStore.moveLabel(nodeId, null)
     labelsStore.setFeed(null)
+  }
+}
+
+function handleFeedDragOver(event, feedId) {
+  dragOverTarget.value = feedId
+  if (!feedHoverTimer) {
+    feedHoverTimer = setTimeout(() => {
+      labelsStore.setFeed(feedId)
+      dragOverTarget.value = null
+      feedHoverTimer = null
+    }, 600)
+  }
+}
+
+function handleFeedDragLeave() {
+  dragOverTarget.value = null
+  if (feedHoverTimer) {
+    clearTimeout(feedHoverTimer)
+    feedHoverTimer = null
   }
 }
 
@@ -419,6 +782,7 @@ function handleBackDragOver(event) {
     backHoverTimer = setTimeout(() => {
       labelsStore.setFeed(null)
       dragOverTarget.value = 'root'
+      backHoverTimer = null
     }, 600)
   }
 }
@@ -435,6 +799,14 @@ watch(showNewNoteModal, (val) => {
   if (val) {
     newNoteTitle.value = ''
     nextTick(() => newNoteTitleInput.value?.focus())
+  } else {
+    newNoteTitle.value = ''
+  }
+})
+
+watch(showNewLabelModal, (val) => {
+  if (!val) {
+    newLabelName.value = ''
   }
 })
 
@@ -459,35 +831,25 @@ defineExpose({
 .sidebar-actions-container { display: flex; flex-direction: column; }
 .contextual-header { display: flex; flex-direction: column; }
 
-.sidebar-header-bar { padding: var(--space-md) var(--space-lg) var(--space-sm); transition: all var(--transition-fast); border: 2px solid transparent; border-radius: var(--radius-lg); margin: 0 4px; }
-.sidebar-header-bar.library-header { background: rgba(99, 102, 241, 0.03); border: 1px solid var(--border-subtle); }
-.sidebar-header-bar.drag-over { background: var(--accent-glow); border-color: var(--accent-primary); }
+.sidebar-header-bar { padding: var(--space-md) var(--space-lg); display: flex; align-items: center; justify-content: space-between; transition: all var(--transition-fast); }
+.sidebar-header-bar.library-header { border-bottom: 1px solid var(--border-subtle); margin-bottom: var(--space-xs); }
+.sidebar-header-bar.drag-over { background: var(--accent-glow); outline: 2px solid var(--accent-primary); }
 
 .header-pill-group { 
   display: flex; 
   align-items: center; 
-  background: var(--bg-secondary); 
-  padding: 4px 6px; 
+  background: var(--bg-tertiary); 
+  padding: 2px; 
   border-radius: var(--radius-md); 
-  border: 1px solid var(--border-subtle); 
-  gap: 4px;
+  gap: 2px;
 }
-.header-label { 
-  font-size: 0.625rem; 
-  font-weight: 800; 
-  color: var(--text-tertiary); 
-  padding: 0 8px; 
-  letter-spacing: 0.05em;
-  opacity: 0.8;
-}
-.header-divider-v { width: 1px; height: 12px; background: var(--border-subtle); margin: 0 4px; }
 .header-pill-group button { 
-  padding: 3px 10px; border: none; background: none; color: var(--text-tertiary); 
-  font-size: 0.625rem; font-weight: 600; cursor: pointer; border-radius: var(--radius-sm); transition: all var(--transition-fast); 
+  padding: 3px 12px; border: none; background: none; color: var(--text-tertiary); 
+  font-size: 0.625rem; font-weight: 700; cursor: pointer; border-radius: var(--radius-sm); transition: all var(--transition-fast); 
 }
-.header-pill-group button.active { background: var(--bg-tertiary); color: var(--text-primary); box-shadow: var(--shadow-sm); }
+.header-pill-group button.active { background: var(--bg-primary); color: var(--accent-primary); box-shadow: var(--shadow-sm); }
 
-.sidebar-header { padding: var(--space-md) var(--space-lg) var(--space-sm); display: flex; align-items: center; justify-content: space-between; }
+.sidebar-header { padding: var(--space-md) var(--space-lg); display: flex; align-items: center; justify-content: space-between; }
 .sidebar-title { font-size: 0.875rem; font-weight: 700; color: var(--text-primary); letter-spacing: -0.01em; white-space: nowrap; }
 
 .sidebar-actions { padding: 0 var(--space-lg) var(--space-sm); display: flex; gap: var(--space-xs); flex-wrap: wrap; }
@@ -510,6 +872,9 @@ defineExpose({
 .nav-card:hover { background: var(--bg-secondary); color: var(--text-primary); transform: translateX(4px); }
 .nav-card.drag-over { background: var(--accent-glow); border-color: var(--accent-primary); color: var(--text-primary); }
 .nav-card svg { color: var(--accent-secondary); }
+.move-btn { width: 18px; height: 18px; border: none; border-radius: var(--radius-sm); background: var(--bg-secondary); color: var(--text-tertiary); display: flex; align-items: center; justify-content: center; cursor: pointer; transition: all var(--transition-fast); }
+.move-btn:hover:not(:disabled) { color: var(--text-primary); background: var(--bg-primary); }
+.move-btn:disabled { opacity: 0.35; cursor: default; }
 .nav-card .arrow { margin-left: auto; opacity: 0; transition: opacity var(--transition-fast); }
 .nav-card:hover .arrow { opacity: 0.5; }
 
@@ -530,4 +895,20 @@ defineExpose({
 .modal { width: 400px; max-width: 90vw; background: var(--bg-secondary); border: 1px solid var(--border-default); border-radius: var(--radius-lg); padding: var(--space-xl); box-shadow: var(--shadow-lg); }
 .modal-title { font-size: 1rem; font-weight: 600; margin-bottom: var(--space-lg); }
 .modal-actions { display: flex; justify-content: flex-end; gap: var(--space-sm); margin-top: var(--space-lg); }
+.move-feed-modal { width: 520px; max-width: 92vw; }
+.move-feed-header { display: flex; align-items: center; gap: var(--space-sm); margin-bottom: var(--space-md); }
+.move-feed-back { flex-shrink: 0; }
+.move-feed-list { max-height: min(42vh, 360px); overflow-y: auto; display: flex; flex-direction: column; gap: 6px; margin-top: var(--space-md); padding-right: 4px; }
+.move-feed-item { display: flex; align-items: center; justify-content: space-between; gap: var(--space-md); width: 100%; padding: 10px 12px; border: 1px solid var(--border-subtle); border-radius: var(--radius-md); background: var(--bg-secondary); color: var(--text-primary); cursor: pointer; text-align: left; transition: all var(--transition-fast); }
+.move-feed-item:hover { background: var(--bg-hover); }
+.move-feed-item.active { border-color: var(--accent-primary); background: var(--accent-glow); }
+.move-feed-main { display: flex; flex-direction: column; min-width: 0; }
+.move-feed-name { font-weight: 600; }
+.move-feed-path { font-size: 0.75rem; color: var(--text-tertiary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.move-feed-icon { width: 24px; height: 24px; border-radius: 999px; display: flex; align-items: center; justify-content: center; font-weight: 700; flex-shrink: 0; }
+.move-feed-icon.plus { background: var(--accent-glow); color: var(--accent-primary); }
+.move-feed-icon.minus { background: rgba(239, 68, 68, 0.12); color: #ef4444; }
+.icon-action-btn { border: none; cursor: pointer; transition: transform var(--transition-fast), background var(--transition-fast), color var(--transition-fast); }
+.icon-action-btn:hover { transform: scale(1.05); }
+.move-feed-empty { padding: 18px 8px; text-align: center; color: var(--text-tertiary); font-size: 0.8125rem; }
 </style>
