@@ -37,6 +37,12 @@ Zenith is a **local-first, virtual-hierarchy note-taking application**. It rejec
 - **Rendering**: The `ExcalidrawPreview` component renders embedded drawings as SVGs using the Excalidraw engine.
 - **Safe Persistence**: The drawing editor ensures all changes are flushed to disk before closing to prevent data loss.
 
+### Attachment Workflow
+- **Upload Trigger**: `/upload` opens the file picker from the editor after a user-initiated input event.
+- **Supported Types**: Images, video, audio, and PDFs are accepted and stored in `/attachments/Uploads`.
+- **Embedding**: Images use wiki-style embeds; PDFs are shown in a preview block with a fallback direct link.
+- **Current Caveat**: PDF inline rendering can vary by browser; treat the direct link as the reliable fallback.
+
 ## 4. Standard Operating Procedures for AI
 1. **Never create subdirectories** inside the vault.
 2. **Persistence First**: Every move, rename, or creation must be immediately reflected in `graph_moc.yaml`.

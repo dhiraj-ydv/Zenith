@@ -13,6 +13,8 @@ Zenith enforces a **flat file structure** while providing a powerful **virtual h
 - **In-Note Drawing Embeds** — Embed drawings in any Markdown note using `![[DrawingName.excalidraw]]`.
 - **Live SVG Previews** — Drawings render as crisp, interactive SVGs directly within your notes, bridging the gap between text and visuals.
 - **Slash Commands** — Use `/excali` within any note to instantly create and jump into a new drawing.
+- **Attachment Uploads** — Use `/upload` in the editor to add images, video, audio, or PDFs into the current note and store them under `/attachments/Uploads`.
+- **Inline Attachment Embeds** — Images render directly in preview; other attachments insert as embeds or preview blocks depending on file type.
 - **Feeds & Library Views** — Toggle between a hierarchical, curated **Feeds** view and a flat, master **Library** view of all notes.
 - **3D Knowledge Graph** — An immersive, Obsidian-style 3D visualization of your notes and their wikilink connections.
 - **Multi-Parent "Mentions"** — A single note can exist in multiple locations in your hierarchy simultaneously.
@@ -96,6 +98,19 @@ npm run dev
 | `POST`   | `/api/notes`              | Create note or drawing |
 | `PUT`    | `/api/notes/{id}`         | Update note content    |
 | `DELETE` | `/api/notes/{id}`         | Delete note + GC       |
+
+### Attachments
+| Method   | Endpoint                      | Description                         |
+|----------|-------------------------------|-------------------------------------|
+| `POST`   | `/api/attachments`            | Upload a media file                 |
+| `GET`    | `/api/attachments/{filename}` | Serve an uploaded attachment inline |
+
+---
+
+## Notes
+
+- Attachment upload is available through the editor's `/upload` command.
+- PDF preview rendering is browser-dependent; if inline rendering fails, the app falls back to a direct file link.
 
 ---
 

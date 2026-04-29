@@ -74,13 +74,15 @@ class MOCService:
         if changed: self.save()
 
     def _sync_with_filesystem(self) -> None:
-        """Ensure all filesystem markdown notes are tracked."""
+        """Ensure all filesystem notes (md, lorien, xopp) are tracked."""
         if not self._moc or not self.vault.get_active_vault(): return
-        notes_dir = self.vault.notes_dir
-        if not notes_dir.exists(): return
-
-        # ONLY track .md files in the hierarchy. Drawings/Assets are hidden.
-        fs_note_ids = {f"note:{f.stem}" for f in notes_dir.glob("*.md")}
+        
+        # Track .md, .lorien, and .xopp files in the hierarchy.
+        fs_note_ids = {f"note:{f.stem}" for f in self.vault.notes_dir.glob("*.md")}
+        if self.vault.lorien_notes_dir.exists():
+            fs_note_ids.update({f"note:{f.stem}" for f in self.vault.lorien_notes_dir.glob("*.lorien")})
+        if self.vault.xjournal_dir.exists():
+            fs_note_ids.update({f"note:{f.stem}" for f in self.vault.xjournal_dir.glob("*.xopp")})
         
         # Build map of all IDs currently tracked (either as node or child)
         tracked_ids = set()
@@ -106,13 +108,13 @@ class MOCService:
 
         original_hierarchy = list(self._moc.hierarchy)
         # Filter: Keep if it's not a note, or if it's a note that isn't redundant
-        # ALSO: Remove any note entries that don't match a filesystem .md file
+        # ALSO: Remove any note entries that don't match a tracked filesystem file
         self._moc.hierarchy = [
             n for n in original_hierarchy 
             if not (n.id.startswith("note:") and (n.id in child_ids and not n.children))
         ]
         
-        # Prune notes from hierarchy that don't exist as .md on disk
+        # Prune notes from hierarchy that don't exist as md/lorien/xopp on disk
         self._moc.hierarchy = [
             n for n in self._moc.hierarchy
             if not (n.id.startswith("note:") and n.id not in fs_note_ids)

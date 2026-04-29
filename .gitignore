@@ -30,3 +30,12 @@ ui_debug.png
 # OS
 .DS_Store
 Thumbs.db
+
+# Temporary and Debug files
+.playwright-mcp/
+backend_log.txt
+*.txt
+test-files/
+lorien.zip
+test_xopp.py
+*.png

@@ -48,7 +48,7 @@ export const attachmentsApi = {
       headers: { 'Content-Type': 'multipart/form-data' },
     })
   },
-  getUrl: (filename) => `/api/attachments/${filename}`,
+  getUrl: (filename) => `/api/attachments/${encodeURIComponent(filename)}`,
   gc: () => api.post('/attachments/gc'),
 }
 

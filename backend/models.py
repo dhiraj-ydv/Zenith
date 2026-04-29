@@ -50,7 +50,7 @@ class NoteCreate(BaseModel):
     title: str = Field(..., min_length=1, max_length=200)
     content: str = ""
     labels: list[str] = Field(default_factory=list)
-    type: str = "markdown" # "markdown" or "excalidraw"
+    type: str = "markdown" # "markdown", "excalidraw" or "lorien"
 
 
 class NoteUpdate(BaseModel):

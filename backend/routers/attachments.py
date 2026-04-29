@@ -3,7 +3,7 @@ Attachments Router — Upload, list, serve, and garbage-collect attachments.
 """
 
 from fastapi import APIRouter, HTTPException, UploadFile, File
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 
 from models import AttachmentResponse
 from services.attachments import AttachmentService
@@ -34,7 +34,29 @@ async def get_attachment(filename: str):
     path = attachment_service.get_attachment_path(filename)
     if not path:
         raise HTTPException(status_code=404, detail="Attachment not found")
-    return FileResponse(path)
+    # Explicitly add CORS header and inline content-disposition to encourage in-browser rendering
+    headers = {
+        "Access-Control-Allow-Origin": "*",
+        "Content-Disposition": f"inline; filename=\"{path.name}\"",
+    }
+    return FileResponse(path, headers=headers)
+
+
+@router.head("/{filename}")
+async def head_attachment(filename: str):
+    """HEAD for attachment - return headers for the file without body."""
+    path = attachment_service.get_attachment_path(filename)
+    if not path:
+        raise HTTPException(status_code=404, detail="Attachment not found")
+    stat = path.stat()
+    headers = {
+        "Content-Length": str(stat.st_size),
+        "Content-Type": "application/pdf" if path.suffix.lower() == ".pdf" else "application/octet-stream",
+        "Accept-Ranges": "bytes",
+        "Access-Control-Allow-Origin": "*",
+        "Content-Disposition": f"inline; filename=\"{path.name}\"",
+    }
+    return Response(status_code=200, headers=headers)
 
 
 @router.post("/gc")

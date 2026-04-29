@@ -9,7 +9,7 @@
     <!-- Sidebar -->
     <Sidebar
       ref="sidebarRef"
-      v-show="vaultStore.activeVault && notesStore.activeNote?.type !== 'excalidraw'"
+      v-show="vaultStore.activeVault && notesStore.activeNote?.type !== 'excalidraw' && notesStore.activeNote?.type !== 'lorien' && notesStore.activeNote?.type !== 'xopp'"
       v-if="vaultStore.activeVault"
       @select-note="handleSelectNote"
       @new-note="handleNewNote"
@@ -25,6 +25,12 @@
         <DrawingEditor
           v-if="notesStore.activeNote.type === 'excalidraw'"
           :key="'drawing-' + notesStore.activeNote.id"
+          :note="notesStore.activeNote"
+          @close="handleCloseDrawing"
+        />
+        <LorienEditor
+          v-else-if="notesStore.activeNote.type === 'lorien'"
+          :key="'lorien-' + notesStore.activeNote.id"
           :note="notesStore.activeNote"
           @close="handleCloseDrawing"
         />
@@ -51,6 +57,7 @@ import { useVaultStore } from './stores/vaults'
 import Sidebar from './components/Sidebar.vue'
 import Editor from './components/Editor.vue'
 import DrawingEditor from './components/DrawingEditor.vue'
+import LorienEditor from './components/LorienEditor.vue'
 import GraphView from './components/GraphView.vue'
 import EmptyState from './components/EmptyState.vue'
 import VaultSwitcher from './components/VaultSwitcher.vue'
@@ -85,6 +92,11 @@ async function loadVaultData() {
 
 function handleSelectNote(id) {
   showGraph.value = false
+  const noteSummary = notesStore.notes.find(n => n.id === id)
+  if (noteSummary && noteSummary.type === 'xopp') {
+    notesStore.openXjournal(id)
+    return
+  }
   notesStore.fetchNote(id)
 }
 
@@ -97,6 +109,11 @@ function handleNewNote() {
 
 function handleGraphNodeSelect(id) {
   showGraph.value = false
+  const noteSummary = notesStore.notes.find(n => n.id === id)
+  if (noteSummary && noteSummary.type === 'xopp') {
+    notesStore.openXjournal(id)
+    return
+  }
   notesStore.fetchNote(id)
 }
 

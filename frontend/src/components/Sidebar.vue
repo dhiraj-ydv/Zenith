@@ -183,7 +183,7 @@
     <Teleport to="body">
       <div class="modal-overlay" v-if="showNewNoteModal" @click.self="showNewNoteModal = false">
         <div class="modal fade-in">
-          <h3 class="modal-title">Create New {{ creationType === 'drawing' ? 'Drawing' : 'Note' }}</h3>
+          <h3 class="modal-title">{{ modalTitle }}</h3>
           <input type="text" class="input" placeholder="Title..." v-model="newNoteTitle" @keydown.enter="createNote" ref="newNoteTitleInput" autofocus />
           <div class="modal-actions">
             <button class="btn btn-ghost" @click="showNewNoteModal = false">Cancel</button>
@@ -232,7 +232,10 @@ const creationType = ref('feed')
 
 const modalTitle = computed(() => {
   if (creationType.value === 'feed') return 'Create New Feed'
-  if (creationType.value === 'drawing') return 'Create New Drawing'
+  if (creationType.value === 'drawing') return 'Create New Excalidraw'
+  if (creationType.value === 'lorien') return 'Create New Lorien'
+  if (creationType.value === 'xopp') return 'Create New Xournal++'
+  if (creationType.value === 'note') return 'Create New Note'
   return 'Create New Label'
 })
 
@@ -316,6 +319,16 @@ function handleNewDrawingAction() {
   showNewNoteModal.value = true
 }
 
+function handleNewLorienAction() {
+  creationType.value = 'lorien'
+  showNewNoteModal.value = true
+}
+
+function handleNewXjournalAction() {
+  creationType.value = 'xopp'
+  showNewNoteModal.value = true
+}
+
 function handleNewFeedRootAction() {
   creationType.value = 'feed'
   showNewLabelModal.value = true
@@ -337,15 +350,24 @@ async function createNote() {
   const targetId = labelsStore.activeLabel || labelsStore.activeFeedId
   if (targetId) labels = [targetId]
 
-  const type = creationType.value === 'drawing' ? 'excalidraw' : 'markdown'
-  const content = type === 'excalidraw' ? '{}' : ''
+  let type = 'markdown'
+  if (creationType.value === 'drawing') type = 'excalidraw'
+  if (creationType.value === 'lorien') type = 'lorien'
+  if (creationType.value === 'xopp') type = 'xopp'
+  
+  const content = (type === 'markdown') ? '' : '{}'
 
-  const note = await notesStore.createNote(newNoteTitle.value.trim(), content, labels, type)
+  // The backend NoteService will now handle the type correctly.
+  // We just need to make sure we're sending the right type.
+  const setActive = type !== 'xopp'
+  const note = await notesStore.createNote(newNoteTitle.value.trim(), content, labels, type, setActive)
   if (note) {
     showNewNoteModal.value = false
     emit('select-note', note.id)
     emit('new-note')
     await labelsStore.fetchLabels()
+  } else {
+    alert(notesStore.error || 'Failed to create file. A file with this name might already exist.')
   }
 }
 
@@ -468,9 +490,9 @@ defineExpose({
 .sidebar-header { padding: var(--space-md) var(--space-lg) var(--space-sm); display: flex; align-items: center; justify-content: space-between; }
 .sidebar-title { font-size: 0.875rem; font-weight: 700; color: var(--text-primary); letter-spacing: -0.01em; white-space: nowrap; }
 
-.sidebar-actions { padding: 0 var(--space-lg) var(--space-sm); display: flex; gap: var(--space-xs); }
-.sidebar-actions.grid { display: grid; grid-template-columns: repeat(3, 1fr); }
-.action-btn-sm { padding: 6px 0; font-size: 0.6875rem; border-radius: var(--radius-md); gap: 4px; display: flex; align-items: center; justify-content: center; }
+.sidebar-actions { padding: 0 var(--space-lg) var(--space-sm); display: flex; gap: var(--space-xs); flex-wrap: wrap; }
+.sidebar-actions.grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 6px; }
+.action-btn-sm { padding: 6px 4px; font-size: 0.65rem; border-radius: var(--radius-md); gap: 4px; display: flex; align-items: center; justify-content: center; }
 
 .sidebar-search { padding: var(--space-sm) var(--space-lg) var(--space-md); }
 .search-input-wrapper { position: relative; }

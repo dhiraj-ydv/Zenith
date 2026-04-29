@@ -43,10 +43,14 @@ class NoteService:
             return None
         if note_type == "excalidraw":
             return self.vault.excalidraw_dir / f"{note_id}.excalidraw"
+        if note_type == "lorien":
+            return self.vault.lorien_notes_dir / f"{note_id}.lorien"
+        if note_type == "xopp":
+            return self.vault.xjournal_dir / f"{note_id}.xopp"
         return self.vault.notes_dir / f"{note_id}.md"
 
     def _find_note_file(self, note_id: str) -> tuple[Path, str] | tuple[None, None]:
-        """Find either .md in notes/ or .excalidraw in attachments/Excalidraw/."""
+        """Find either .md in notes/, .excalidraw in attachments/Excalidraw/, .lorien in attachments/Lorien/, or .xopp in attachments/Xjournal/."""
         if not self.vault.get_active_vault():
             return None, None
         
@@ -57,27 +61,44 @@ class NoteService:
         ex_path = self.vault.excalidraw_dir / f"{note_id}.excalidraw"
         if ex_path.exists():
             return ex_path, "excalidraw"
+
+        lo_path = self.vault.lorien_notes_dir / f"{note_id}.lorien"
+        if lo_path.exists():
+            return lo_path, "lorien"
+
+        xo_path = self.vault.xjournal_dir / f"{note_id}.xopp"
+        if xo_path.exists():
+            return xo_path, "xopp"
             
         return None, None
 
     def list_notes(self, label: str | None = None) -> list[NoteSummary]:
-        """List only standard markdown notes. Drawings are hidden from sidebar."""
+        """List markdown, lorien, and xopp notes. Excalidraw drawings remain hidden from sidebar unless embedded."""
         notes: list[NoteSummary] = []
         if not self.vault.get_active_vault():
             return notes
         
-        if self.vault.notes_dir.exists():
-            for f in self.vault.notes_dir.glob("*.md"):
-                note_id = f.stem
-                labels = self.moc.get_labels_for_note(note_id)
-                if label and label not in labels:
-                    continue
-                notes.append(NoteSummary(
-                    id=note_id,
-                    title=_id_to_title(note_id),
-                    labels=labels,
-                    type="markdown"
-                ))
+        # Search for .md files in the notes directory
+        targets = [
+            (self.vault.notes_dir, "*.md", "markdown")
+        ]
+
+        for directory, pattern, ntype in targets:
+            if directory.exists():
+                for f in directory.glob(pattern):
+                    note_id = f.stem
+                    # Extra safety: ensure it's not a temporary file
+                    if note_id.startswith('.'): continue
+                    
+                    labels = self.moc.get_labels_for_note(note_id)
+                    if label and label not in labels:
+                        continue
+                    notes.append(NoteSummary(
+                        id=note_id,
+                        title=_id_to_title(note_id),
+                        labels=labels,
+                        type=ntype
+                    ))
         notes.sort(key=lambda n: n.title)
         return notes
 
@@ -87,7 +108,11 @@ class NoteService:
         if not path or not note_type:
             return None
             
-        content = path.read_text(encoding="utf-8")
+        if note_type == "xopp":
+            content = "[Binary Xournal++ File]"
+        else:
+            content = path.read_text(encoding="utf-8")
+            
         links = self._parse_wikilinks(content) if note_type == "markdown" else []
         attachments = self._parse_attachments(content) if note_type == "markdown" else []
         labels = self.moc.get_labels_for_note(note_id)
@@ -116,10 +141,25 @@ class NoteService:
         if not path:
              raise ValueError("Could not determine path")
 
-        path.write_text(content, encoding="utf-8")
+        path.parent.mkdir(parents=True, exist_ok=True)
 
-        # Only add markdown notes to the virtual hierarchy/sidebar
-        if note_type == "markdown":
+        if note_type == "xopp":
+            import gzip
+            # Default empty Xournal++ XML
+            xml_content = """<?xml version="1.0" standalone="no"?>
+<xournal creator="xournalpp 1.2.7" fileversion="4">
+<title>Xournal++ document - see https://xournalpp.github.io/</title>
+<page width="595.27559" height="841.88976">
+<background type="solid" color="#ffffffff" style="plain"/>
+<layer/>
+</page>
+</xournal>"""
+            path.write_bytes(gzip.compress(xml_content.encode("utf-8")))
+        else:
+            path.write_text(content, encoding="utf-8")
+
+        # Add markdown, lorien, and xopp notes to the virtual hierarchy/sidebar
+        if note_type in ["markdown", "lorien", "xopp"]:
             if labels:
                 for label in labels:
                     full_id = label
@@ -215,6 +255,26 @@ class NoteService:
                     title=_id_to_title(f.stem),
                     labels=[],
                     type="excalidraw"
+                ))
+        
+        # Search lorien
+        for f in self.vault.lorien_notes_dir.glob("*.lorien"):
+            if query_lower in f.stem.lower():
+                results.append(NoteSummary(
+                    id=f.stem,
+                    title=_id_to_title(f.stem),
+                    labels=[],
+                    type="lorien"
+                ))
+        
+        # Search xopp
+        for f in self.vault.xjournal_dir.glob("*.xopp"):
+            if query_lower in f.stem.lower():
+                results.append(NoteSummary(
+                    id=f.stem,
+                    title=_id_to_title(f.stem),
+                    labels=[],
+                    type="xopp"
                 ))
         return results
 

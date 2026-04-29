@@ -1,0 +1,429 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Lorien Web Bridge</title>
+    <style>
+        :root {
+            --bg-dark: #1e1e1e;
+            --bg-tool: #2d2d2d;
+            --border: #3c3c3c;
+            --accent: #61afef;
+            --text: #d4d4d4;
+        }
+        body { 
+            background: var(--bg-dark); 
+            color: var(--text); 
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; 
+            margin: 0; 
+            overflow: hidden; 
+            display: flex; 
+            flex-direction: column; 
+            height: 100vh;
+        }
+        .toolbar {
+            background: var(--bg-tool);
+            padding: 8px 12px;
+            display: flex;
+            gap: 8px;
+            align-items: center;
+            border-bottom: 1px solid var(--border);
+            user-select: none;
+            z-index: 10;
+        }
+        .tool-group {
+            display: flex;
+            background: #252526;
+            padding: 4px;
+            border-radius: 4px;
+            gap: 2px;
+        }
+        canvas {
+            flex: 1;
+            cursor: crosshair;
+            background: var(--bg-dark);
+            touch-action: none;
+        }
+        button {
+            background: transparent;
+            color: var(--text);
+            border: 1px solid transparent;
+            padding: 6px 10px;
+            border-radius: 3px;
+            cursor: pointer;
+            font-size: 12px;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+        button:hover { background: #3e3e3e; }
+        button.active { 
+            background: #37373d; 
+            border-color: var(--accent);
+            color: var(--accent);
+        }
+        button.primary { background: #0e639c; color: white; border: none; }
+        button.primary:hover { background: #1177bb; }
+        
+        .color-dot { width: 14px; height: 14px; border-radius: 50%; border: 1px solid rgba(255,255,255,0.2); }
+        .info { font-size: 11px; color: #666; margin-left: auto; }
+        .status { font-size: 11px; color: #22c55e; margin-left: 10px; opacity: 0; transition: opacity 0.5s; }
+        .status.visible { opacity: 1; }
+        
+        .separator { width: 1px; height: 20px; background: var(--border); margin: 0 4px; }
+    </style>
+</head>
+<body>
+    <div class="toolbar">
+        <div class="tool-group">
+            <button id="btn-pencil" class="active" onclick="setTool('pencil')">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z"/></svg>
+                Pencil
+            </button>
+            <button id="btn-eraser" onclick="setTool('eraser')">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 20H7L3 16C2.5 15.5 2.5 14.5 3 14L13 4L21 12L16 17"/><path d="M18 12L13 7"/></svg>
+                Eraser
+            </button>
+            <button id="btn-pan" onclick="setTool('pan')">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14M12 5v14M5 12l3-3M5 12l3 3M19 12l-3-3M19 12l-3 3M12 5l-3 3M12 5l3 3M12 19l-3-3M12 19l3-3"/></svg>
+                Pan
+            </button>
+            <button id="btn-reset" onclick="resetView()" title="Center View">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M3 12h3M18 12h3M12 3v3M12 18v3"/></svg>
+            </button>
+        </div>
+
+        <div class="separator"></div>
+
+        <div class="tool-group">
+            <button onclick="setColor('#61afef')"><div class="color-dot" style="background:#61afef"></div></button>
+            <button onclick="setColor('#e06c75')"><div class="color-dot" style="background:#e06c75"></div></button>
+            <button onclick="setColor('#98c379')"><div class="color-dot" style="background:#98c379"></div></button>
+            <button onclick="setColor('#d19a66')"><div class="color-dot" style="background:#d19a66"></div></button>
+            <button onclick="setColor('#ffffff')"><div class="color-dot" style="background:#ffffff"></div></button>
+        </div>
+
+        <div class="separator"></div>
+
+        <button onclick="clearCanvas()">Clear</button>
+        <button class="primary" onclick="saveToZenith()">Save</button>
+        <span id="saveStatus" class="status">Saved!</span>
+        
+        <div class="info">Infinite Canvas Bridge</div>
+    </div>
+    <canvas id="canvas"></canvas>
+
+    <script>
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d');
+        const saveStatus = document.getElementById('saveStatus');
+        
+        let drawing = false;
+        let panning = false;
+        let strokes = [];
+        let currentStroke = [];
+        let currentTool = 'pencil';
+        let currentColor = '#61afef';
+        let currentSize = 2;
+
+        // Camera for infinite canvas
+        let offsetX = 0;
+        let offsetY = 0;
+        let scale = 1;
+        let lastPanX = 0;
+        let lastPanY = 0;
+
+        function resize() {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight - 50;
+            
+            // Re-center if it's the first load and we have no offset yet
+            if (offsetX === 0 && offsetY === 0) {
+                offsetX = canvas.width / 2;
+                offsetY = canvas.height / 2;
+            }
+            redraw();
+        }
+        window.onresize = resize;
+        resize();
+
+        function setTool(tool) {
+            currentTool = tool;
+            document.getElementById('btn-pencil').classList.toggle('active', tool === 'pencil');
+            document.getElementById('btn-eraser').classList.toggle('active', tool === 'eraser');
+            document.getElementById('btn-pan').classList.toggle('active', tool === 'pan');
+            canvas.style.cursor = tool === 'pan' ? 'grab' : 'crosshair';
+        }
+
+        function setColor(color) {
+            currentColor = color;
+            if (currentTool === 'eraser' || currentTool === 'pan') setTool('pencil');
+        }
+
+        function resetView() {
+            offsetX = canvas.width / 2;
+            offsetY = canvas.height / 2;
+            scale = 1;
+            redraw();
+        }
+
+        function getMousePos(e) {
+            const rect = canvas.getBoundingClientRect();
+            let cx, cy;
+            if (e.touches && e.touches.length > 0) {
+                cx = e.touches[0].clientX;
+                cy = e.touches[0].clientY;
+            } else {
+                cx = e.clientX;
+                cy = e.clientY;
+            }
+            return {
+                screenX: cx - rect.left,
+                screenY: cy - rect.top,
+                worldX: (cx - rect.left - offsetX) / scale,
+                worldY: (cy - rect.top - offsetY) / scale
+            };
+        }
+
+        canvas.addEventListener('mousedown', start);
+        canvas.addEventListener('mousemove', draw);
+        canvas.addEventListener('mouseup', stop);
+        canvas.addEventListener('mouseleave', stop);
+
+        // Zoom with mouse wheel
+        canvas.addEventListener('wheel', (e) => {
+            e.preventDefault();
+            const pos = getMousePos(e);
+            
+            const zoomFactor = 1.1;
+            if (e.deltaY < 0) {
+                scale *= zoomFactor;
+            } else {
+                scale /= zoomFactor;
+            }
+            // limit scale
+            scale = Math.max(0.1, Math.min(scale, 10));
+
+            // Adjust offset to keep mouse over the same world point
+            offsetX = pos.screenX - pos.worldX * scale;
+            offsetY = pos.screenY - pos.worldY * scale;
+
+            redraw();
+        }, { passive: false });
+
+        // Touch support
+        canvas.addEventListener('touchstart', (e) => { e.preventDefault(); start(e); }, { passive: false });
+        canvas.addEventListener('touchmove', (e) => { e.preventDefault(); draw(e); }, { passive: false });
+        canvas.addEventListener('touchend', stop);
+
+        // Prevent context menu to allow right-click pan
+        canvas.addEventListener('contextmenu', e => e.preventDefault());
+
+        function start(e) {
+            const isMiddleClick = e.button === 1;
+            const isRightClick = e.button === 2;
+            const isPanTouch = e.touches && e.touches.length === 2; // two-finger pan
+            
+            if (currentTool === 'pan' || isMiddleClick || isRightClick || isPanTouch) {
+                panning = true;
+                const pos = getMousePos(e);
+                lastPanX = pos.screenX;
+                lastPanY = pos.screenY;
+                canvas.style.cursor = 'grabbing';
+                return;
+            }
+
+            if (e.button && e.button !== 0) return; // Only left click for drawing
+
+            drawing = true;
+            currentStroke = {
+                tool: currentTool,
+                color: currentTool === 'eraser' ? '#1e1e1e' : currentColor,
+                size: currentTool === 'eraser' ? 40 : currentSize, // scale independent size for now
+                points: []
+            };
+            
+            ctx.setTransform(scale, 0, 0, scale, offsetX, offsetY);
+            ctx.beginPath();
+            
+            const pos = getMousePos(e);
+            drawPoint(pos.worldX, pos.worldY);
+        }
+
+        function draw(e) {
+            if (panning) {
+                const pos = getMousePos(e);
+                offsetX += pos.screenX - lastPanX;
+                offsetY += pos.screenY - lastPanY;
+                lastPanX = pos.screenX;
+                lastPanY = pos.screenY;
+                redraw();
+                return;
+            }
+
+            if (!drawing) return;
+            const pos = getMousePos(e);
+            drawPoint(pos.worldX, pos.worldY);
+        }
+
+        function drawPoint(x, y) {
+            currentStroke.points.push({x, y});
+            
+            ctx.lineWidth = currentStroke.size;
+            ctx.lineCap = 'round';
+            ctx.lineJoin = 'round';
+            ctx.strokeStyle = currentStroke.color;
+
+            ctx.lineTo(x, y);
+            ctx.stroke();
+            ctx.beginPath();
+            ctx.moveTo(x, y);
+        }
+
+        function stop(e) {
+            if (panning) {
+                panning = false;
+                canvas.style.cursor = currentTool === 'pan' ? 'grab' : 'crosshair';
+                return;
+            }
+
+            if (!drawing) return;
+            drawing = false;
+            
+            // reset transform for other operations
+            ctx.setTransform(1, 0, 0, 1, 0, 0);
+            
+            if (currentStroke.points.length > 0) {
+                strokes.push(currentStroke);
+                saveToZenith(true);
+            }
+        }
+
+        function redraw() {
+            // Reset transform to clear the whole canvas
+            ctx.setTransform(1, 0, 0, 1, 0, 0);
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            
+            // Apply camera transform
+            ctx.setTransform(scale, 0, 0, scale, offsetX, offsetY);
+
+            drawGrid();
+
+            strokes.forEach(stroke => {
+                const points = stroke.points || stroke;
+                if (points.length < 1) return;
+                
+                // If it's an old stroke from before we centered the origin, it might be drawn weird.
+                // But that's fine, the user can just pan to it.
+                ctx.lineWidth = stroke.size || 2;
+                ctx.lineCap = 'round';
+                ctx.lineJoin = 'round';
+                ctx.strokeStyle = stroke.color || '#61afef';
+
+                ctx.beginPath();
+                ctx.moveTo(points[0].x, points[0].y);
+                for (let i = 1; i < points.length; i++) {
+                    ctx.lineTo(points[i].x, points[i].y);
+                }
+                ctx.stroke();
+            });
+            ctx.beginPath();
+        }
+
+        function drawGrid() {
+            const gridSize = 40;
+            ctx.fillStyle = "rgba(255, 255, 255, 0.05)";
+            
+            // Calculate visible boundaries in world space
+            const startX = -offsetX / scale;
+            const startY = -offsetY / scale;
+            const endX = (canvas.width - offsetX) / scale;
+            const endY = (canvas.height - offsetY) / scale;
+
+            // Snap to grid
+            const firstX = Math.floor(startX / gridSize) * gridSize;
+            const firstY = Math.floor(startY / gridSize) * gridSize;
+
+            for (let x = firstX; x < endX; x += gridSize) {
+                for (let y = firstY; y < endY; y += gridSize) {
+                    ctx.fillRect(x - 1, y - 1, 2, 2);
+                }
+            }
+            
+            // Draw origin (0,0) indicator (helpful for navigation)
+            ctx.fillStyle = "rgba(97, 175, 239, 0.3)";
+            ctx.beginPath();
+            ctx.arc(0, 0, 4 / scale, 0, 2 * Math.PI); // keep size relatively small but visible
+            ctx.fill();
+            
+            // X and Y axis faint lines
+            ctx.strokeStyle = "rgba(255, 255, 255, 0.03)";
+            ctx.lineWidth = 1 / scale;
+            ctx.beginPath();
+            ctx.moveTo(startX, 0); ctx.lineTo(endX, 0);
+            ctx.moveTo(0, startY); ctx.lineTo(0, endY);
+            ctx.stroke();
+        }
+
+        function clearCanvas() {
+            if (confirm('Clear entire canvas?')) {
+                strokes = [];
+                redraw();
+                saveToZenith();
+            }
+        }
+
+        function saveToZenith(silent = false) {
+            window.parent.postMessage({
+                type: 'LORIEN_SAVE',
+                payload: {
+                    format: 'zenith-lorien-v1',
+                    strokes: strokes,
+                    timestamp: new Date().toISOString()
+                }
+            }, '*');
+
+            if (!silent) {
+                saveStatus.classList.add('visible');
+                setTimeout(() => saveStatus.classList.remove('visible'), 2000);
+            }
+        }
+        
+        window.addEventListener('message', (e) => {
+            if (e.data.type === 'LORIEN_INIT') {
+                if (e.data.payload && e.data.payload.strokes) {
+                    strokes = e.data.payload.strokes;
+                    
+                    // If we have strokes, try to center on them
+                    if (strokes.length > 0 && offsetX === canvas.width / 2 && offsetY === canvas.height / 2) {
+                        // find bounding box of strokes
+                        let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+                        let hasPoints = false;
+                        strokes.forEach(s => {
+                            const pts = s.points || s;
+                            pts.forEach(p => {
+                                if (p.x < minX) minX = p.x;
+                                if (p.y < minY) minY = p.y;
+                                if (p.x > maxX) maxX = p.x;
+                                if (p.y > maxY) maxY = p.y;
+                                hasPoints = true;
+                            });
+                        });
+                        
+                        if (hasPoints) {
+                            const centerX = (minX + maxX) / 2;
+                            const centerY = (minY + maxY) / 2;
+                            // Update offset to center the drawing on screen
+                            offsetX = canvas.width / 2 - centerX * scale;
+                            offsetY = canvas.height / 2 - centerY * scale;
+                        }
+                    }
+                    
+                    redraw();
+                }
+            }
+        });
+
+        window.parent.postMessage({ type: 'LORIEN_READY' }, '*');
+    </script>
+</body>
+</html>

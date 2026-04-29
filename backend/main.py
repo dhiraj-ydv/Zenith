@@ -19,6 +19,8 @@ from routers import notes as notes_router
 from routers import labels as labels_router
 from routers import attachments as attachments_router
 from routers import graph as graph_router
+from routers import lorien as lorien_router
+from routers import xjournal as xjournal_router
 
 
 @asynccontextmanager
@@ -44,6 +46,7 @@ async def lifespan(app: FastAPI):
     vaults_router.router.attachment_service = attach
     
     notes_router.note_service = note_svc
+    xjournal_router.note_service = note_svc
     labels_router.moc_service = moc
     attachments_router.attachment_service = attach
     graph_router.graph_service = graph_svc
@@ -77,6 +80,8 @@ app.include_router(notes_router.router)
 app.include_router(labels_router.router)
 app.include_router(attachments_router.router)
 app.include_router(graph_router.router)
+app.include_router(lorien_router.router)
+app.include_router(xjournal_router.router)
 
 
 @app.get("/")

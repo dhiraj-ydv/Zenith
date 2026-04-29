@@ -48,12 +48,14 @@ export const useNotesStore = defineStore('notes', {
       }
     },
 
-    async createNote(title, content = '', labels = [], type = 'markdown') {
+    async createNote(title, content = '', labels = [], type = 'markdown', setActive = true) {
       this.error = null
       try {
         const { data } = await notesApi.create({ title, content, labels, type })
         this.notes.push({ id: data.id, title: data.title, labels: data.labels, type: data.type })
-        this.activeNote = data
+        if (setActive) {
+          this.activeNote = data
+        }
         return data
       } catch (err) {
         this.error = err.response?.data?.detail || err.message
@@ -140,6 +142,37 @@ export const useNotesStore = defineStore('notes', {
         this.searchResults = data
       } catch {
         this.searchResults = []
+      }
+    },
+
+    async openXjournal(id) {
+      try {
+        await fetch(`/api/xjournal/${id}/open`, { method: 'POST' })
+        return true
+      } catch (err) {
+        console.error('Failed to open Xjournal++:', err)
+        return false
+      }
+    },
+
+    saveScrollPosition(id, pos) {
+      if (!id) return
+      try {
+        const positions = JSON.parse(localStorage.getItem('zenith_scroll_positions') || '{}')
+        positions[id] = pos
+        localStorage.setItem('zenith_scroll_positions', JSON.stringify(positions))
+      } catch (e) {
+        console.error('Failed to save scroll position', e)
+      }
+    },
+
+    getScrollPosition(id) {
+      if (!id) return { textarea: 0, preview: 0 }
+      try {
+        const positions = JSON.parse(localStorage.getItem('zenith_scroll_positions') || '{}')
+        return positions[id] || { textarea: 0, preview: 0 }
+      } catch (e) {
+        return { textarea: 0, preview: 0 }
       }
     },
   },

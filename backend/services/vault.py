@@ -90,6 +90,14 @@ class VaultManager:
         return self.attachments_dir / "Excalidraw"
 
     @property
+    def lorien_notes_dir(self) -> Path:
+        return self.attachments_dir / "Lorien"
+
+    @property
+    def xjournal_dir(self) -> Path:
+        return self.attachments_dir / "Xjournal"
+
+    @property
     def moc_file(self) -> Path:
         return self.vault_root / "graph_moc.yaml"
 
@@ -106,12 +114,16 @@ class VaultManager:
         attachments = root / "attachments"
         uploads = attachments / "Uploads"
         excalidraw = attachments / "Excalidraw"
+        lorien = attachments / "Lorien"
+        xjournal = attachments / "Xjournal"
         moc = root / "graph_moc.yaml"
 
         notes.mkdir(parents=True, exist_ok=True)
         attachments.mkdir(parents=True, exist_ok=True)
         uploads.mkdir(parents=True, exist_ok=True)
         excalidraw.mkdir(parents=True, exist_ok=True)
+        lorien.mkdir(parents=True, exist_ok=True)
+        xjournal.mkdir(parents=True, exist_ok=True)
 
         if not moc.exists():
             moc.write_text("version: 1.1\nhierarchy: []\nedges: []\n", encoding="utf-8")

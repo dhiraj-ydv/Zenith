@@ -68,8 +68,9 @@
           <textarea
             class="edit-textarea"
             v-model="content"
-            @input="handleInput"
+            @input="handleInput($event)"
             @keydown="handleKeydown"
+            @scroll="handleScroll"
             ref="textarea"
             placeholder="Start writing... Use [[ to link/embed drawings"
             spellcheck="false"
@@ -90,7 +91,7 @@
                 <path d="M14 2H6C4.89 2 4 2.9 4 4V20C4 21.1 4.89 22 6 22H18C19.1 22 20 21.1 20 20V8L14 2Z"/><path d="M14 2V8H20"/>
               </svg>
               <span class="ac-title">{{ result.title }}</span>
-              <span v-if="result.type === 'excalidraw'" class="ac-tag">drawing</span>
+              <span v-if="result.type === 'excalidraw'" class="ac-tag">excalidraw</span>
             </button>
             <div class="autocomplete-footer" v-if="autocompleteQuery">
                Press Enter to link to "{{ autocompleteQuery }}"
@@ -99,17 +100,46 @@
         </div>
       </div>
 
-      <div class="preview-pane" v-if="viewMode !== 'edit'">
+      <div class="preview-pane" v-if="viewMode !== 'edit'" ref="previewPane" @scroll="handleScroll">
         <div class="preview-content markdown-body" @click="handlePreviewClick">
           <template v-for="(block, idx) in contentBlocks" :key="idx">
              <div v-if="block.type === 'drawing'" class="drawing-preview-block">
                 <div class="drawing-header-mini">
                   <span class="drawing-name-pill">{{ block.name }}</span>
-                  <button class="btn-edit-drawing" @click="notesStore.fetchNote(block.name)">Edit Drawing</button>
+                  <button class="btn-edit-drawing" @click="notesStore.fetchNote(block.name)">Edit Excalidraw</button>
                 </div>
-                <ExcalidrawPreview :content="block.content" :name="block.name" @edit="notesStore.fetchNote(block.name)" />
+                <ExcalidrawPreview :content="block.content" :name="block.name" @edit="openDrawingViewer(block.name, 'excalidraw')" />
              </div>
-             <div v-else v-html="block.html"></div>
+             <div v-else-if="block.type === 'lorien'" class="drawing-preview-block lorien-block">
+                <div class="drawing-header-mini">
+                  <span class="drawing-name-pill">{{ block.name }}</span>
+                  <button class="btn-edit-drawing" @click="notesStore.fetchNote(block.name)">Edit Lorien</button>
+                </div>
+                <LorienPreview :content="block.content" :name="block.name" @edit="openDrawingViewer(block.name, 'lorien')" />
+             </div>
+             <div v-else-if="block.type === 'xopp'" class="drawing-preview-block xjournal-block">
+                <div class="drawing-header-mini">
+                  <div class="drawing-info">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="color: #6366f1">
+                      <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
+                    </svg>
+                    <span class="drawing-name-pill">{{ block.name }}</span>
+                  </div>
+                  <div class="drawing-actions">
+                    <button class="btn-refresh-drawing tooltip" @click="refreshXopp(block.name)" data-tooltip="Refresh Preview">
+                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+                        <path d="M23 4v6h-6M1 20v-6h6M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15" />
+                      </svg>
+                    </button>
+                    <button class="btn-edit-drawing" @click="notesStore.openXjournal(block.name)">Edit Xournal++</button>
+                  </div>
+                </div>
+                <XjournalPreview :note-id="block.name" :ref="(el) => setXoppRef(el, block.name)" @edit="notesStore.openXjournal(block.name)" />
+             </div>
+               <div v-else-if="block.type === 'pdf'" class="pdf-block">
+                 <PdfViewer :filename="block.filename" />
+               </div>
+               <div v-else v-html="block.html"></div>
           </template>
         </div>
       </div>
@@ -126,14 +156,57 @@
     <Teleport to="body">
        <div class="modal-overlay" v-if="showNewDrawingModal" @click.self="showNewDrawingModal = false">
          <div class="modal fade-in">
-           <h3 class="modal-title">New Drawing</h3>
-           <input type="text" class="input" placeholder="Drawing name..." v-model="newDrawingTitle" @keydown.enter="createAndEmbedDrawing" autofocus />
+           <h3 class="modal-title">New {{ creationType === 'lorien' ? 'Lorien' : (creationType === 'xopp' ? 'Xournal++' : 'Excalidraw') }}</h3>
+           <input type="text" class="input" :placeholder="creationType === 'lorien' ? 'Lorien name...' : (creationType === 'xopp' ? 'Xournal++ name...' : 'Excalidraw name...')" v-model="newDrawingTitle" @keydown.enter="createAndEmbedDrawing" autofocus />
            <div class="modal-actions">
              <button class="btn btn-ghost" @click="showNewDrawingModal = false">Cancel</button>
              <button class="btn btn-primary" @click="createAndEmbedDrawing" :disabled="!newDrawingTitle.trim()">Create & Embed</button>
            </div>
          </div>
        </div>
+    <!-- Hidden file input for /upload command -->
+    <input ref="fileInput" type="file" style="display:none" @change="handleFileSelected" :accept="acceptedTypes" />
+
+    <!-- Drawing Viewer Modal -->
+    <div class="modal-overlay drawing-viewer-overlay" v-if="viewingDrawing" @click.self="closeDrawingViewer">
+      <div class="drawing-viewer-modal fade-in">
+        <header class="viewer-header">
+          <div class="viewer-title">
+            <svg v-if="viewingDrawing.type === 'excalidraw'" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M12 19l7-7 3 3-7 7-3-3z"/><path d="M18 13l-1.5-7.5L2 2l3.5 14.5L13 18l5-5z"/><path d="M2 2l5 2"/><path d="M2 2l2 5"/>
+            </svg>
+            <svg v-else width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M12 19l7-7 3 3-7 7-3-3z"/><path d="M18 13l-1.5-7.5L2 2l3.5 14.5L13 18l5-5z"/>
+            </svg>
+            <h3>{{ viewingDrawing.name }}</h3>
+          </div>
+          <div class="viewer-actions">
+            <button class="zoom-btn" @click="viewerZoom = Math.max(0.25, viewerZoom - 0.25)">-</button>
+            <span class="zoom-level">{{ Math.round(viewerZoom * 100) }}%</span>
+            <button class="zoom-btn" @click="viewerZoom = Math.min(3, viewerZoom + 0.25)">+</button>
+            <button class="btn btn-primary btn-sm" @click="notesStore.fetchNote(viewingDrawing.name); closeDrawingViewer()">Edit</button>
+            <button class="btn-icon" @click="closeDrawingViewer">
+               <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6L6 18M6 6l12 12"/></svg>
+            </button>
+          </div>
+        </header>
+        <div 
+          class="viewer-body" 
+          @wheel.prevent="handleViewerWheel" 
+          @mousedown="startViewerPan" 
+          @mousemove="handleViewerPan" 
+          @mouseup="endViewerPan" 
+          @mouseleave="endViewerPan"
+          ref="viewerBodyRef"
+          :class="{ 'is-panning': isViewerPanning }"
+        >
+          <div class="viewer-canvas" :style="{ transform: `scale(${viewerZoom})`, transformOrigin: 'top center' }">
+             <ExcalidrawPreview v-if="viewingDrawing.type === 'excalidraw'" :name="viewingDrawing.name" content="{}" />
+             <LorienPreview v-if="viewingDrawing.type === 'lorien'" :name="viewingDrawing.name" content="{}" />
+          </div>
+        </div>
+      </div>
+    </div>
     </Teleport>
   </div>
 </template>
@@ -145,6 +218,9 @@ import { useNotesStore } from '../stores/notes'
 import { useLabelsStore } from '../stores/labels'
 import { attachmentsApi } from '../api/client'
 import ExcalidrawPreview from './ExcalidrawPreview.vue'
+import LorienPreview from './LorienPreview.vue'
+import XjournalPreview from './XjournalPreview.vue'
+import PdfViewer from './PdfViewer.vue'
 
 const notesStore = useNotesStore()
 const labelsStore = useLabelsStore()
@@ -155,15 +231,82 @@ const editingTitle = ref(false)
 const titleDraft = ref('')
 const titleInput = ref(null)
 const textarea = ref(null)
+const previewPane = ref(null)
+const fileInput = ref(null)
+const acceptedTypes = 'image/*,video/*,audio/*,application/pdf'
+const userInteracted = ref(false)
 const showLabelPicker = ref(false)
 const showNewDrawingModal = ref(false)
 const newDrawingTitle = ref('')
+const creationType = ref('excalidraw')
+
+const xoppRefs = ref({})
+function setXoppRef(el, name) {
+  if (el) xoppRefs.value[name] = el
+}
+function refreshXopp(name) {
+  if (xoppRefs.value[name]) xoppRefs.value[name].refresh()
+}
 
 const showAutocomplete = ref(false)
 const autocompleteResults = ref([])
 const autocompleteIndex = ref(0)
 const autocompletePosition = ref({ top: '0px', left: '0px' })
 const autocompleteQuery = ref('')
+
+// Viewer Modal State
+const viewingDrawing = ref(null)
+const viewerZoom = ref(1)
+
+// Panning State
+const viewerBodyRef = ref(null)
+const isViewerPanning = ref(false)
+let viewerPanStartX = 0
+let viewerPanStartY = 0
+let viewerPanScrollLeft = 0
+let viewerPanScrollTop = 0
+
+function openDrawingViewer(name, type) {
+  viewingDrawing.value = { name, type }
+  viewerZoom.value = 1
+}
+
+function closeDrawingViewer() {
+  viewingDrawing.value = null
+  viewerZoom.value = 1
+  isViewerPanning.value = false
+}
+
+function startViewerPan(e) {
+  if (e.button !== 0) return // Only left click
+  if (!viewerBodyRef.value) return
+  isViewerPanning.value = true
+  viewerPanStartX = e.pageX - viewerBodyRef.value.offsetLeft
+  viewerPanStartY = e.pageY - viewerBodyRef.value.offsetTop
+  viewerPanScrollLeft = viewerBodyRef.value.scrollLeft
+  viewerPanScrollTop = viewerBodyRef.value.scrollTop
+}
+
+function handleViewerPan(e) {
+  if (!isViewerPanning.value || !viewerBodyRef.value) return
+  e.preventDefault()
+  const x = e.pageX - viewerBodyRef.value.offsetLeft
+  const y = e.pageY - viewerBodyRef.value.offsetTop
+  const walkX = (x - viewerPanStartX) * 1.5 // Pan speed multiplier
+  const walkY = (y - viewerPanStartY) * 1.5
+  viewerBodyRef.value.scrollLeft = viewerPanScrollLeft - walkX
+  viewerBodyRef.value.scrollTop = viewerPanScrollTop - walkY
+}
+
+function endViewerPan() {
+  isViewerPanning.value = false
+}
+
+function handleViewerWheel(e) {
+  // Zoom on any mouse wheel scroll
+  if (e.deltaY < 0) viewerZoom.value = Math.min(3, viewerZoom.value + 0.1)
+  else viewerZoom.value = Math.max(0.25, viewerZoom.value - 0.1)
+}
 
 let saveTimer = null
 
@@ -172,32 +315,38 @@ const allLabels = computed(() => labelsStore.hierarchy.filter(h => h.id.startsWi
 
 const contentBlocks = computed(() => {
   if (!content.value) return [{ type: 'html', html: '<p style="color: var(--text-tertiary);">Nothing to preview</p>' }]
-  
+
   const blocks = []
-  // Match ![[...]] tags that end in .excalidraw
-  const drawingRegex = /!\[\[([^\]]+?\.excalidraw)\]\]/g
+  const attachRegex = /!\[\[([^\]]+)\]\]/g
   let lastIndex = 0
   let match
 
-  while ((match = drawingRegex.exec(content.value)) !== null) {
-    // Text before the drawing
+  while ((match = attachRegex.exec(content.value)) !== null) {
     if (match.index > lastIndex) {
       const text = content.value.substring(lastIndex, match.index)
       blocks.push({ type: 'html', html: renderMarkdown(text) })
     }
 
-    const drawingName = match[1].replace('.excalidraw', '')
-    
-    blocks.push({ 
-      type: 'drawing', 
-      name: drawingName, 
-      content: '' // Let the preview component fetch its own content
-    })
+    const filename = match[1]
+    if (filename.endsWith('.excalidraw')) {
+      const drawingName = filename.replace('.excalidraw', '')
+      blocks.push({ type: 'drawing', name: drawingName, content: '' })
+    } else if (filename.endsWith('.lorien')) {
+      const drawingName = filename.replace('.lorien', '')
+      blocks.push({ type: 'lorien', name: drawingName })
+    } else if (filename.endsWith('.xopp')) {
+      const drawingName = filename.replace('.xopp', '')
+      blocks.push({ type: 'xopp', name: drawingName })
+    } else if (filename.toLowerCase().endsWith('.pdf')) {
+      blocks.push({ type: 'pdf', filename })
+    } else {
+      // treat as inline image/embed; renderMarkdown will convert it
+      blocks.push({ type: 'html', html: renderMarkdown(match[0]) })
+    }
 
-    lastIndex = drawingRegex.lastIndex
+    lastIndex = attachRegex.lastIndex
   }
 
-  // Remaining text after last drawing
   if (lastIndex < content.value.length) {
     const text = content.value.substring(lastIndex)
     blocks.push({ type: 'html', html: renderMarkdown(text) })
@@ -207,17 +356,33 @@ const contentBlocks = computed(() => {
 })
 
 function renderMarkdown(text) {
+  // Replace image-style wiki embeds first: ![[file.ext]] -> <img ...>
   let processed = text.replace(
-    /\[\[([^\]]+)\]\]/g,
-    '<a class="wikilink" href="#" data-link="$1">$1</a>'
-  )
-  processed = processed.replace(
     /!\[\[([^\]]+)\]\]/g,
     (match, filename) => {
-       if (filename.endsWith('.excalidraw')) return match // Should be handled by blocks logic
+       if (filename.endsWith('.excalidraw') || filename.endsWith('.lorien')) return match // handled elsewhere
        return `<img src="${attachmentsApi.getUrl(filename)}" alt="${filename}" style="max-width:100%;border-radius:8px;margin:8px 0;" />`
     }
   )
+
+  // Then replace normal wiki links [[file]] -> <a ...>
+  processed = processed.replace(
+    /\[\[([^\]]+)\]\]/g,
+    '<a class="wikilink" href="#" data-link="$1">$1</a>'
+  )
+  // If running in the browser dev server, rewrite /api/attachments/... to direct backend host:8000 to avoid proxy range aborts
+    try {
+    if (typeof window !== 'undefined' && window.location && window.location.port && window.location.port !== '8000') {
+      const rawHost = window.location.hostname || '127.0.0.1'
+      const host = (rawHost === 'localhost' || rawHost === '::1') ? '127.0.0.1' : rawHost
+      const backendPrefix = `${window.location.protocol}//${host}:8000/api/attachments/`
+      processed = processed.replace(/(src=\")\/api\/attachments\//g, `$1${backendPrefix}`)
+      processed = processed.replace(/(href=\")\/api\/attachments\//g, `$1${backendPrefix}`)
+    }
+  } catch (e) {
+    // ignore
+  }
+
   return marked(processed)
 }
 
@@ -239,36 +404,166 @@ watch(contentBlocks, (newBlocks) => {
 
 const wordCount = computed(() => content.value ? content.value.trim().split(/\s+/).filter(Boolean).length : 0)
 
-onMounted(() => { if (notesStore.activeNote && notesStore.activeNote.type === 'markdown') content.value = notesStore.activeNote.content || '' })
+let isRestoringScroll = false
+
+function restoreScroll() {
+  if (!note.value.id) return
+  const targetId = note.value.id
+  isRestoringScroll = true
+  
+  const pos = notesStore.getScrollPosition(targetId)
+  
+  const applyScroll = () => {
+    if (note.value.id !== targetId) return
+    if (pos) {
+      if (textarea.value && pos.textarea !== undefined) {
+        textarea.value.scrollTop = pos.textarea
+      }
+      if (previewPane.value && pos.preview !== undefined) {
+        previewPane.value.scrollTop = pos.preview
+      }
+    }
+  }
+
+  // Try immediately
+  nextTick(applyScroll)
+  // Try after short delay for markdown render
+  setTimeout(applyScroll, 50)
+  // Try after longer delay for embedded drawings/iframes
+  setTimeout(() => {
+    applyScroll()
+    // Re-enable saving scroll position
+    isRestoringScroll = false
+  }, 500)
+}
+
+function handleScroll(e) {
+  if (!note.value.id || isRestoringScroll) return
+  if (e.target === textarea.value) {
+    notesStore.saveScrollPosition(note.value.id, { ...notesStore.getScrollPosition(note.value.id), textarea: e.target.scrollTop })
+  } else if (e.target === previewPane.value) {
+    notesStore.saveScrollPosition(note.value.id, { ...notesStore.getScrollPosition(note.value.id), preview: e.target.scrollTop })
+  }
+}
+
+onMounted(() => { 
+  if (notesStore.activeNote && notesStore.activeNote.type === 'markdown') {
+    content.value = notesStore.activeNote.content || ''
+    restoreScroll()
+  } 
+})
 watch(() => notesStore.activeNote?.id, () => { 
   if (notesStore.activeNote && notesStore.activeNote.type === 'markdown') {
     content.value = notesStore.activeNote.content || '' 
+    restoreScroll()
   }
 })
 
-async function handleInput() {
+async function handleInput(evt) {
   const el = textarea.value
+  if (!el) return
   const cursorPos = el.selectionStart
   const textBefore = content.value.substring(0, cursorPos)
-  
-  // Check for /excali command
+
+  // Only respond to user-generated input events to avoid triggering commands
+  // when content is set programmatically (e.g., loading a note).
+  if (!evt || !evt.isTrusted) {
+    if (saveTimer) clearTimeout(saveTimer)
+    saveTimer = setTimeout(() => notesStore.updateNote(note.value.id, content.value), 800)
+    return
+  }
+
+  // Mark that the user has interacted via a trusted input event
+  userInteracted.value = true
+
+  // Check for /excali command - only if the last character was 'i' or pasted
   if (textBefore.endsWith('/excali')) {
-    // 1. Remove /excali text
     const newContent = content.value.substring(0, cursorPos - 7) + content.value.substring(cursorPos)
     content.value = newContent
-    
-    // 2. Save immediately so state is clean
+    if (saveTimer) clearTimeout(saveTimer)
+    await notesStore.updateNote(note.value.id, newContent)
+    handleNewDrawing()
+    return
+  }
+
+  // Check for /lorien command
+  if (textBefore.endsWith('/lorien')) {
+    const newContent = content.value.substring(0, cursorPos - 7) + content.value.substring(cursorPos)
+    content.value = newContent
+    if (saveTimer) clearTimeout(saveTimer)
+    await notesStore.updateNote(note.value.id, newContent)
+    handleNewLorien()
+    return
+  }
+
+  // Check for /xopp command
+  if (textBefore.endsWith('/xopp')) {
+    const newContent = content.value.substring(0, cursorPos - 5) + content.value.substring(cursorPos)
+    content.value = newContent
+    if (saveTimer) clearTimeout(saveTimer)
+    await notesStore.updateNote(note.value.id, newContent)
+    handleNewXjournal()
+    return
+  }
+
+  // Check for /upload command - only if the last character was 'd' or pasted
+  if (textBefore.endsWith('/upload')) {
+    // remove the command text and save the content, then open file picker
+    const newContent = content.value.substring(0, cursorPos - 7) + content.value.substring(cursorPos)
+    content.value = newContent
     if (saveTimer) clearTimeout(saveTimer)
     await notesStore.updateNote(note.value.id, newContent)
 
-    // 3. Show drawing modal
-    handleNewDrawing()
+    // remember cursor position where files should be embedded
+    lastCursorPos.value = cursorPos - 7
+    
+    // open file picker
+    fileInput.value?.click()
     return
   }
 
   checkAutocomplete()
   if (saveTimer) clearTimeout(saveTimer)
   saveTimer = setTimeout(() => notesStore.updateNote(note.value.id, content.value), 800)
+}
+
+function getEmbedText(filename, mime) {
+  if (!mime) return `![[${filename}]]`
+  if (mime.startsWith('image/')) return `![[${filename}]]`
+  if (mime.startsWith('video/')) return `\n<video controls src="${attachmentsApi.getUrl(filename)}" style="max-width:100%;">Your browser does not support the video tag.</video>\n`
+  if (mime.startsWith('audio/')) return `\n<audio controls src="${attachmentsApi.getUrl(filename)}">Your browser does not support the audio element.</audio>\n`
+  if (mime === 'application/pdf') {
+    // Embed as a wiki attachment so the preview layer can render it with PdfViewer
+    return `![[${filename}]]`
+  }
+  return `![[${filename}]]`
+}
+
+async function handleFileSelected(e) {
+  const files = e.target?.files
+  if (!files || files.length === 0) return
+  const parentId = note.value.id
+  let insertPos = lastCursorPos.value || textarea.value.selectionStart || 0
+  let parentContent = content.value
+
+  for (const file of files) {
+    try {
+      const { data } = await attachmentsApi.upload(file)
+      const filename = data.filename
+      const embed = getEmbedText(filename, file.type)
+      parentContent = parentContent.substring(0, insertPos) + embed + parentContent.substring(insertPos)
+      insertPos += embed.length
+    } catch (err) {
+      console.error('Upload failed:', err)
+    }
+  }
+
+  // Update content and save
+  content.value = parentContent
+  await notesStore.updateNote(parentId, parentContent)
+
+  // clear file input for next use
+  if (fileInput.value) fileInput.value.value = null
 }
 
 function startTitleEdit() { titleDraft.value = note.value.title; editingTitle.value = true; nextTick(() => titleInput.value?.select()) }
@@ -291,6 +586,21 @@ const lastCursorPos = ref(0)
 function handleNewDrawing() {
   lastCursorPos.value = textarea.value.selectionStart
   newDrawingTitle.value = ''
+  creationType.value = 'excalidraw'
+  showNewDrawingModal.value = true
+}
+
+function handleNewLorien() {
+  lastCursorPos.value = textarea.value.selectionStart
+  newDrawingTitle.value = ''
+  creationType.value = 'lorien'
+  showNewDrawingModal.value = true
+}
+
+function handleNewXjournal() {
+  lastCursorPos.value = textarea.value.selectionStart
+  newDrawingTitle.value = ''
+  creationType.value = 'xopp'
   showNewDrawingModal.value = true
 }
 
@@ -303,9 +613,18 @@ async function createAndEmbedDrawing() {
   const parentContent = content.value
   const pos = lastCursorPos.value
   
-  const drawing = await notesStore.createNote(title, '{}', [], 'excalidraw')
+  let type = 'excalidraw'
+  if (creationType.value === 'lorien') type = 'lorien'
+  else if (creationType.value === 'xopp') type = 'xopp'
+
+  const setActive = type !== 'xopp'
+  const drawing = await notesStore.createNote(title, '{}', [], type, setActive)
   if (drawing) {
-    const embedText = `\n![[${drawing.id}.excalidraw]]\n`
+    let ext = '.excalidraw'
+    if (type === 'lorien') ext = '.lorien'
+    else if (type === 'xopp') ext = '.xopp'
+
+    const embedText = `\n![[${drawing.id}${ext}]]\n`
     const updatedParentContent = parentContent.substring(0, pos) + embedText + parentContent.substring(pos)
     
     // Explicitly update the PARENT note, not the active note (which is now the drawing)
@@ -314,7 +633,15 @@ async function createAndEmbedDrawing() {
     showNewDrawingModal.value = false
     
     // Open the drawing immediately
-    notesStore.fetchNote(drawing.id)
+    if (type === 'xopp') {
+      notesStore.openXjournal(drawing.id)
+      // Stay on current note
+      notesStore.fetchNote(parentId)
+    } else {
+      notesStore.fetchNote(drawing.id)
+    }
+  } else {
+    alert(notesStore.error || 'Failed to create file. A file with this name might already exist.')
   }
 }
 
@@ -344,7 +671,11 @@ function insertAutocomplete(result) {
   if (match) {
     const start = cursorPos - match[1].length
     const isDrawing = result.type === 'excalidraw'
-    const insertText = (isDrawing ? '!' : '') + '[[' + result.id + (isDrawing ? '.excalidraw' : '') + ']]'
+    const isLorien = result.type === 'lorien'
+    const isXopp = result.type === 'xopp'
+    const ext = isLorien ? '.lorien' : (isDrawing ? '.excalidraw' : (isXopp ? '.xopp' : ''))
+    const prefix = (isDrawing || isLorien || isXopp) ? '!' : ''
+    const insertText = prefix + '[[' + result.id + ext + ']]'
     content.value = textBefore.substring(0, start-2) + insertText + textAfter
     showAutocomplete.value = false
     handleInput()
@@ -362,15 +693,33 @@ function handleKeydown(e) {
 
 function handlePreviewClick(e) {
   const link = e.target.closest('a.wikilink')
-  if (link) { e.preventDefault(); notesStore.fetchNote(link.getAttribute('data-link').replace('.excalidraw', '')) }
+  if (link) {
+     e.preventDefault()
+     const noteId = link.getAttribute('data-link').replace('.excalidraw', '').replace('.lorien', '').replace('.xopp', '')
+     notesStore.fetchNote(noteId)
+     return
+  }
+  
+  // Check if they clicked the edit button
+  const editBtn = e.target.closest('.btn-edit-drawing')
+  if (editBtn) return // Handled by inline @click on the button
+
   const drawing = e.target.closest('.drawing-preview-block')
-  if (drawing) { 
+  if (drawing) {
+     // Skip if it's an xopp block, as we want to maintain context
+     if (drawing.classList.contains('xjournal-block')) return
+
      // Find the drawing name from the pill or data
-     const name = drawing.querySelector('.drawing-name-pill')?.textContent
-     if (name) notesStore.fetchNote(name)
+     let name = drawing.querySelector('.drawing-name-pill')?.textContent || ''
+     name = name.replace(' (Lorien)', '').replace(' (Xjournal)', '').trim()
+     
+     if (name) {
+       const type = drawing.classList.contains('lorien-block') ? 'lorien' : 'excalidraw'
+       viewingDrawing.value = { name, type }
+       viewerZoom.value = 1
+     }
   }
 }
-
 async function handleDrop(e) {
   const files = e.dataTransfer?.files
   if (!files || files.length === 0) return
@@ -431,6 +780,10 @@ function confirmDelete() {
   box-shadow: var(--shadow-sm);
 }
 
+.drawing-preview-block.xjournal-block {
+  background: var(--bg-secondary);
+}
+
 .drawing-preview-block:hover {
   border-color: var(--accent-primary);
   box-shadow: var(--shadow-md);
@@ -445,12 +798,44 @@ function confirmDelete() {
   border-bottom: 1px solid var(--border-subtle);
 }
 
+.drawing-info {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
 .drawing-name-pill {
   font-size: 0.7rem;
   font-weight: 600;
   color: var(--text-tertiary);
   text-transform: uppercase;
   letter-spacing: 0.05em;
+}
+
+.drawing-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.btn-refresh-drawing {
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
+  border: 1px solid var(--border-subtle);
+  border-radius: 4px;
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.btn-refresh-drawing:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+  border-color: var(--accent-primary);
 }
 
 .btn-edit-drawing {
@@ -469,6 +854,18 @@ function confirmDelete() {
   opacity: 0.9;
 }
 
+.lorien-placeholder {
+  height: 180px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg-primary);
+  color: var(--text-tertiary);
+  gap: 12px;
+  font-size: 0.75rem;
+}
+
 .autocomplete-dropdown { position: absolute; background: var(--bg-elevated); border: 1px solid var(--border-strong); border-radius: var(--radius-md); box-shadow: var(--shadow-lg); z-index: 1000; min-width: 200px; }
 .autocomplete-item { width: 100%; padding: 8px 12px; display: flex; align-items: center; gap: 8px; background: none; border: none; color: var(--text-primary); cursor: pointer; text-align: left; font-size: 0.8125rem; }
 .autocomplete-item:hover, .autocomplete-item.active { background: var(--accent-primary); color: white; }
@@ -482,4 +879,14 @@ function confirmDelete() {
 .modal { width: 400px; background: var(--bg-secondary); border: 1px solid var(--border-default); border-radius: var(--radius-lg); padding: var(--space-xl); }
 .modal-title { margin-bottom: var(--space-lg); }
 .modal-actions { display: flex; justify-content: flex-end; gap: var(--space-sm); margin-top: var(--space-lg); }
+.drawing-viewer-overlay { z-index: 3000; padding: 0; }
+.drawing-viewer-modal { width: 100vw; height: 100vh; max-width: none; border-radius: 0; background: var(--bg-primary); display: flex; flex-direction: column; overflow: hidden; }
+.viewer-header { display: flex; align-items: center; justify-content: space-between; padding: 12px 20px; border-bottom: 1px solid var(--border-subtle); background: var(--bg-secondary); flex-shrink: 0; }
+.viewer-title { display: flex; align-items: center; gap: 8px; font-weight: 600; color: var(--text-primary); }
+.viewer-actions { display: flex; align-items: center; gap: 12px; }
+.zoom-btn { background: var(--bg-tertiary); border: 1px solid var(--border-subtle); color: var(--text-primary); width: 28px; height: 28px; border-radius: 4px; display: flex; align-items: center; justify-content: center; cursor: pointer; font-weight: bold; }
+.zoom-level { font-size: 0.8rem; font-variant-numeric: tabular-nums; width: 40px; text-align: center; }
+.viewer-body { flex: 1; overflow: auto; background: var(--bg-root); padding: 20px; display: flex; justify-content: center; align-items: flex-start; cursor: grab; }
+.viewer-body.is-panning { cursor: grabbing; user-select: none; }
+.viewer-canvas { transition: transform 0.1s ease-out; width: 100%; pointer-events: none; }
 </style>

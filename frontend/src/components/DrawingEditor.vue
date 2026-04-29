@@ -3,7 +3,7 @@
     <div class="excalidraw-wrapper" v-if="initialData">
        <ExcalidrawComponent
          :initialData="initialData"
-         @onChange="handleChange"
+         @change="handleChange"
          theme="dark"
          :UIOptions="uiOptions"
        />
@@ -117,10 +117,8 @@ async function performSave() {
 }
 
 async function handleBack() {
-  // If there's a pending save, do it now before exiting
-  if (saveTimeout) {
-    await performSave()
-  }
+  // Flush the latest canvas snapshot before leaving the editor.
+  await performSave()
   emit('close')
 }
 </script>
